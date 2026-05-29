@@ -3,7 +3,5 @@ dist/
 .env
 *.log
 .DS_Store
-data.csv
 matches.csv
-data.csv
 dist/
