@@ -1,0 +1,55 @@
+{
+  "name": "MatchPro™ Intelligence Dashboard",
+  "short_name": "MatchPro",
+  "description": "AI-powered real estate market intelligence — Egypt's #1 property matching platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080f1e",
+  "theme_color": "#0ea5e9",
+  "orientation": "any",
+  "categories": ["business", "finance", "productivity"],
+  "lang": "en",
+  "icons": [
+    { "src": "/icons/icon-72x72.png",   "sizes": "72x72",   "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-96x96.png",   "sizes": "96x96",   "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-128x128.png", "sizes": "128x128", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-144x144.png", "sizes": "144x144", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-152x152.png", "sizes": "152x152", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-384x384.png", "sizes": "384x384", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/apple-touch-icon.png", "sizes": "192x192", "type": "image/png", "purpose": "any" }
+  ],
+  "screenshots": [
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "MatchPro Dashboard Overview"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Asset Matcher",
+      "short_name": "Match",
+      "description": "Find matching buyers for your property",
+      "url": "/?page=asset-matcher",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Supply & Demand",
+      "short_name": "S&D",
+      "description": "Browse market supply and demand",
+      "url": "/?page=supply-demand",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "WhatsApp Feed",
+      "short_name": "WhatsApp",
+      "description": "Live WhatsApp message intelligence",
+      "url": "/?page=whatsapp",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
+    }
+  ]
+}

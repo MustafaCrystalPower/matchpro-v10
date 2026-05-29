@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>MatchPro™ — Market Intelligence Dashboard</title>
+    <meta name="description" content="MatchPro™ Intelligence Engine — AI-powered real estate market intelligence platform for Egypt" />
+
+    <!-- PWA / Installable App -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0ea5e9" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- iOS Safari -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MatchPro" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192x192.png" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512x512.png" />
+    <link rel="shortcut icon" href="/icons/icon-192x192.png" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="MatchPro™ Intelligence Dashboard" />
+    <meta property="og:description" content="AI-powered real estate market intelligence for Egypt" />
+    <meta property="og:image" content="/icons/icon-512x512.png" />
+    <meta property="og:type" content="website" />
+
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #080f1e; }
+      #root { min-height: 100vh; }
+      /* PWA install prompt override */
+      .pwa-install-toast {
+        position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+        background: #131f35; border: 1px solid rgba(14,165,233,0.4); border-radius: 12px;
+        padding: 12px 20px; display: flex; align-items: center; gap: 12px;
+        z-index: 99999; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        font-family: 'Inter', sans-serif; color: #f8fafc; font-size: 0.85rem;
+        animation: slideUp 0.3s ease;
+      }
+      @keyframes slideUp { from { opacity: 0; transform: translateX(-50%) translateY(20px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
