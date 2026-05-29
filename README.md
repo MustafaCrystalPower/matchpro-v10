@@ -45,3 +45,4 @@ npm start          # Start API + serve frontend on :3000
 
 ---
 *MatchPro™ — The Eye of the Market*
+# MatchPro™ v10.0 — Sat May 30 01:57:15 EEST 2026
