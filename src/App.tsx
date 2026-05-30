@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import Sidebar from './components/Sidebar'
+import MatchNotifications, { NotificationBell, useNotifications } from './components/MatchNotifications'
 import Dashboard from './pages/Dashboard'
 import MarketIntelligence from './pages/MarketIntelligence'
 import SupplyDemand from './pages/SupplyDemand'
@@ -61,7 +62,11 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
   const [nextRefreshIn, setNextRefreshIn] = useState(REFRESH_INTERVAL_MS / 1000)
-  const [notifications, setNotifications] = useState<Array<{ id: number; msg: string; type: 'info' | 'success' | 'warning' }>>([])
+  const [notifications, setNotifications] = useState<Array<{ id: number; msg: string; type: 'info' | 'success' | 'warning' }>>([])  
+  const [showInstallBanner, setShowInstallBanner] = useState(false)
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
+  const prevMatchCount = useRef<number>(0)
+  const { alerts, pushEnabled, enablePush, disablePush, pushAlert, dismissAlert } = useNotifications()
 
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const countdownRef   = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -69,9 +74,34 @@ export default function App() {
   useEffect(() => {
     fetchMarketData()
     startRefreshCycle()
+
+    // PWA install prompt capture
+    const handler = (e: Event) => { e.preventDefault(); setDeferredPrompt(e); setShowInstallBanner(true) }
+    window.addEventListener('beforeinstallprompt', handler as any)
+
+    // iOS: show banner if not standalone and not dismissed recently
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream
+    const isStandalone = (window.navigator as any).standalone || window.matchMedia('(display-mode: standalone)').matches
+    const dismissed = localStorage.getItem('matchpro_install_dismissed')
+    if (isIOS && !isStandalone && !dismissed) {
+      setTimeout(() => setShowInstallBanner(true), 3000)
+    }
+
+    // Listen for SW messages (navigate events from notification clicks)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', (e) => {
+        if (e.data?.type === 'NAVIGATE') {
+          const url = new URL(e.data.url, window.location.origin)
+          const page = url.searchParams.get('page') as Page
+          if (page) setCurrentPage(page)
+        }
+      })
+    }
+
     return () => {
       if (refreshTimerRef.current) clearInterval(refreshTimerRef.current)
       if (countdownRef.current) clearInterval(countdownRef.current)
+      window.removeEventListener('beforeinstallprompt', handler as any)
     }
   }, [])
 
@@ -112,6 +142,21 @@ export default function App() {
       setApiData({ summary, intelligence, source: 'live' })
       setLastUpdated(new Date())
       pushNotification('Live data refreshed successfully', 'success')
+      // Check for new matches and fire coin notification
+      const newMatchCount = summary?.total_matches || 0
+      if (prevMatchCount.current > 0 && newMatchCount > prevMatchCount.current) {
+        const diff = newMatchCount - prevMatchCount.current
+        pushAlert({
+          type: 'match',
+          title: `🎯 ${diff} New Match${diff > 1 ? 'es' : ''} Found!`,
+          body: `${diff} new buyer-seller match${diff > 1 ? 'es' : ''} available in your market`,
+          score: 87,
+          location: summary?.top_locations?.[0]?.name || 'Cairo',
+          price: undefined,
+          url: '/?page=matches',
+        })
+      }
+      prevMatchCount.current = newMatchCount
     } catch {
       setApiData({ ...getMockData(), source: 'demo' })
       setLastUpdated(new Date())
@@ -175,6 +220,9 @@ export default function App() {
           nextRefreshIn={nextRefreshIn}
           notifications={notifications}
           onDismissNotification={(id: number) => setNotifications(prev => prev.filter(n => n.id !== id))}
+          pushEnabled={pushEnabled}
+          onTogglePush={pushEnabled ? disablePush : enablePush}
+          alertCount={alerts.length}
         />
 
         <div style={{ flex: 1, padding: '24px', overflowX: 'hidden' }}>
@@ -211,12 +259,38 @@ export default function App() {
           </div>
         ))}
       </div>
+
+      {/* MatchPro Notification Engine — coin drops + PWA install + push alerts */}
+      <MatchNotifications
+        alerts={alerts}
+        pushEnabled={pushEnabled}
+        enablePush={enablePush}
+        disablePush={disablePush}
+        dismissAlert={dismissAlert}
+        onNavigate={(page) => setCurrentPage(page as Page)}
+        showInstallBanner={showInstallBanner}
+        onInstall={async () => {
+          if (deferredPrompt) {
+            deferredPrompt.prompt()
+            const choice = await deferredPrompt.userChoice
+            if (choice.outcome === 'accepted') {
+              pushAlert({ type: 'match', title: '✅ MatchPro Installed!', body: 'App added to home screen. Coin notifications enabled 🪙' })
+            }
+          }
+          setShowInstallBanner(false)
+          setDeferredPrompt(null)
+        }}
+        onDismissInstall={() => {
+          setShowInstallBanner(false)
+          localStorage.setItem('matchpro_install_dismissed', Date.now().toString())
+        }}
+      />
     </div>
   )
 }
 
 /* ─── TopBar ──────────────────────────────────────────────── */
-function TopBar({ currentPage, loading, onRefresh, lastUpdated, onMenuToggle, apiData, nextRefreshIn, notifications, onDismissNotification }: any) {
+function TopBar({ currentPage, loading, onRefresh, lastUpdated, onMenuToggle, apiData, nextRefreshIn, notifications, onDismissNotification, pushEnabled, onTogglePush, alertCount }: any) {
   const meta = PAGE_META[currentPage as Page]
   const [showNotifPanel, setShowNotifPanel] = useState(false)
   const isLive = apiData?.source === 'live'
@@ -293,7 +367,17 @@ function TopBar({ currentPage, loading, onRefresh, lastUpdated, onMenuToggle, ap
           {isLive ? 'LIVE DATA' : 'DEMO DATA'}
         </div>
 
-        {/* Notifications bell */}
+        {/* Push Notification Bell */}
+        <NotificationBell
+          count={alertCount || 0}
+          pushEnabled={!!pushEnabled}
+          onClick={() => {
+            if (!pushEnabled) onTogglePush()
+            else setShowNotifPanel(!showNotifPanel)
+          }}
+        />
+
+        {/* Activity Log */}
         <div style={{ position: 'relative' }}>
           <button
             onClick={() => setShowNotifPanel(!showNotifPanel)}
