@@ -5,8 +5,15 @@ data/*.db-wal
 logs/
 *.log
 .env
+.env.local
+.env.production
 poc-screenshots/
 archive/
 reports/
 *.pdf
 *.xlsx
+*.csv
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

@@ -1,0 +1,14 @@
+[build]
+command = '''
+  apk add --no-cache python3 make g++ &&
+  npm install --production &&
+  echo \"Build complete\"
+'''
+
+[deploy]
+startCommand = \"node scripts/startup.js\"
+healthcheckPath = \"/health\"
+healthcheckTimeout = 120
+
+# Last deploy trigger: 2026-05-30
+# MatchPro v11.0.0 | Crystal Power Investments

@@ -1,0 +1,45 @@
+name: Deploy to Railway
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: fafef88d-4ac5-4187-80bb-076678ca5614
+        run: |
+          railway up --project $RAILWAY_PROJECT_ID --environment production --detach --ci
+
+      - name: Wait for deployment
+        run: sleep 30
+
+      - name: Health check
+        run: |
+          sleep 15
+          for i in {1..10}; do
+            response=$(curl -s -o /dev/null -w '%{http_code}' https://matchpro-production.up.railway.app/health 2>/dev/null || echo 000)
+            if [ \"$response\" = \"200\" ]; then
+              echo \"✅ Deployment successful!\"
+              echo \"URL: https://matchpro-production.up.railway.app\"
+              break
+            fi
+            echo \"Attempt $i: status=$response, retrying in 10s...\"
+            sleep 10
+          done
