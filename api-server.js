@@ -884,6 +884,704 @@ async function main() {
     }
   })
   
+  // ─── Enhanced Scraper Routes ─────────────────────────────────────────────────
+
+  // In-memory scrape cache: key = "location:beds:purpose", value = { data, ts }
+  const SCRAPE_CACHE = new Map()
+  const SCRAPE_TTL_MS = 30 * 60 * 1000  // 30 min
+
+  const PLATFORM_STATUS = {
+    'Property Finder': { status: 'ok', last_scraped: null, count: 0 },
+    'Dubizzle':        { status: 'ok', last_scraped: null, count: 0 },
+    'Aqarmap':         { status: 'ok', last_scraped: null, count: 0 },
+    'OLX Egypt':       { status: 'ok', last_scraped: null, count: 0 },
+    'MatchPro DB':     { status: 'ok', last_scraped: new Date().toISOString(), count: 0 },
+  }
+
+  const SCRAPER_UA = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+  ]
+  function randomUA() { return SCRAPER_UA[Math.floor(Math.random() * SCRAPER_UA.length)] }
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
+
+  // Location → Arabic alias map
+  const LOC_ALIASES = {
+    'Madinaty': ['مدينتي', 'madinaty', 'madenty'],
+    'Rehab City': ['الرحاب', 'rehab', 'el rehab'],
+    'New Cairo': ['القاهرة الجديدة', 'new cairo', 'التجمع', '5th settlement'],
+    'Fifth Settlement': ['التجمع الخامس', 'fifth settlement', 'القاهرة الجديدة'],
+    'Sheikh Zayed': ['الشيخ زايد', 'sheikh zayed', 'zayed'],
+    '6th October': ['السادس من اكتوبر', '6th october', 'اكتوبر'],
+    'Mostakbal City': ['مدينة المستقبل', 'mostakbal', 'المستقبل'],
+    'Nasr City': ['مدينة نصر', 'nasr city', 'نصر'],
+    'Heliopolis': ['مصر الجديدة', 'heliopolis'],
+    'Zamalek': ['الزمالك', 'zamalek'],
+    'Maadi': ['المعادي', 'maadi'],
+    'North Coast': ['الساحل الشمالي', 'north coast', 'الساحل'],
+    'New Capital': ['العاصمة الإدارية', 'new capital', 'العاصمة'],
+    'Obour': ['العبور', 'obour', 'el obour'],
+    'Shorouk': ['الشروق', 'shorouk'],
+    'Palm Hills': ['بالم هيلز', 'palm hills'],
+  }
+
+  function locationSlug(loc) {
+    const map = {
+      'Madinaty': 'madinaty', 'New Cairo': 'new-cairo', 'Fifth Settlement': 'fifth-settlement',
+      'Sheikh Zayed': 'sheikh-zayed', '6th October': 'sixth-of-october', 'Rehab City': 'rehab',
+      'Mostakbal City': 'mostakbal-city', 'Nasr City': 'nasr-city', 'Heliopolis': 'heliopolis',
+      'Zamalek': 'zamalek', 'Maadi': 'maadi', 'North Coast': 'north-coast',
+      'New Capital': 'new-capital-city', 'Obour': 'obour',
+    }
+    return map[loc] || loc.toLowerCase().replace(/\s+/g, '-')
+  }
+
+  // Scrape PropertyFinder with location/beds filter
+  async function scrapePropertyFinderSearch(location, beds, purpose) {
+    const intent = purpose === 'rent' ? 'rent' : 'sale'
+    const slug = locationSlug(location)
+    const url = `https://www.propertyfinder.eg/en/search?c=1&l=1&t=${intent}&q=${encodeURIComponent(location)}`
+    try {
+      await sleep(500 + Math.random() * 1000)
+      const resp = await fetch(url, {
+        headers: { 'User-Agent': randomUA(), 'Accept-Language': 'en-US,en;q=0.9', 'Accept': 'text/html' },
+        signal: AbortSignal.timeout(8000),
+      })
+      if (!resp.ok) {
+        PLATFORM_STATUS['Property Finder'].status = resp.status === 429 ? 'degraded' : 'offline'
+        return []
+      }
+      const html = await resp.text()
+      const results = []
+      // Extract listing cards via regex
+      const cardRe = /"price":\s*"?(\d+)"?[^}]*"location":\s*"([^"]+)"[^}]*"bedroom":\s*"?(\d+)"?/g
+      const titleRe = /<h2[^>]*class="[^"]*property-name[^"]*"[^>]*>([^<]+)<\/h2>/g
+      const phoneRe = /href="tel:(\+?[\d\s\-]+)"/g
+
+      let m, idx = 0
+      while ((m = cardRe.exec(html)) !== null && idx < 20) {
+        const price = parseInt(m[1]) || null
+        const loc = m[2] || location
+        const bedsNum = parseInt(m[3]) || null
+        if (beds && bedsNum && Math.abs(bedsNum - parseInt(beds)) > 1) continue
+        results.push({
+          id: `pf_${Date.now()}_${idx}`,
+          name: `Property Finder Listing #${idx + 1}`,
+          match_score: 0,
+          location: loc,
+          bedrooms: bedsNum,
+          budget: null,
+          price: price,
+          message: `${bedsNum || '?'}BR ${intent === 'rent' ? 'for rent' : 'for sale'} in ${loc}${price ? ` — ${(price/1e6).toFixed(1)}M EGP` : ''}`,
+          phone: '',
+          source: 'Property Finder',
+          source_url: url,
+          posted_at: new Date().toISOString(),
+          property_type: 'apartment',
+          intent: intent === 'rent' ? 'rent_out' : 'sell',
+          urgency: 'normal',
+          area_sqm: null,
+        })
+        idx++
+      }
+      PLATFORM_STATUS['Property Finder'].status = 'ok'
+      PLATFORM_STATUS['Property Finder'].last_scraped = new Date().toISOString()
+      PLATFORM_STATUS['Property Finder'].count = results.length
+      return results
+    } catch (e) {
+      PLATFORM_STATUS['Property Finder'].status = 'degraded'
+      return []
+    }
+  }
+
+  // Scrape Aqarmap
+  async function scrapeAqarmap(location, beds, purpose) {
+    const slug = locationSlug(location)
+    const intent = purpose === 'rent' ? 'for-rent' : 'for-sale'
+    const url = `https://aqarmap.com.eg/ar/${intent}/apartment/${slug}/`
+    try {
+      await sleep(300 + Math.random() * 700)
+      const resp = await fetch(url, {
+        headers: { 'User-Agent': randomUA(), 'Accept-Language': 'ar,en;q=0.8' },
+        signal: AbortSignal.timeout(8000),
+      })
+      if (!resp.ok) {
+        PLATFORM_STATUS['Aqarmap'].status = 'degraded'
+        return []
+      }
+      const html = await resp.text()
+      const results = []
+      // Price + location extraction
+      const priceRe = /data-price="(\d+)"/g
+      const titleRe = /class="listing-title[^>]*>([^<]+)</g
+      let m, idx = 0
+      while ((m = priceRe.exec(html)) !== null && idx < 15) {
+        const price = parseInt(m[1]) || null
+        results.push({
+          id: `aq_${Date.now()}_${idx}`,
+          name: `Aqarmap Listing #${idx + 1}`,
+          match_score: 0,
+          location: location,
+          bedrooms: beds ? parseInt(beds) : null,
+          budget: null,
+          price: price,
+          message: `${beds || '?'}BR ${purpose === 'rent' ? 'للإيجار' : 'للبيع'} في ${location}${price ? ` — ${(price/1e6).toFixed(1)}M EGP` : ''}`,
+          phone: '',
+          source: 'Aqarmap',
+          source_url: url,
+          posted_at: new Date().toISOString(),
+          property_type: 'apartment',
+          intent: purpose === 'rent' ? 'rent_out' : 'sell',
+          urgency: 'normal',
+          area_sqm: null,
+        })
+        idx++
+      }
+      PLATFORM_STATUS['Aqarmap'].status = 'ok'
+      PLATFORM_STATUS['Aqarmap'].last_scraped = new Date().toISOString()
+      PLATFORM_STATUS['Aqarmap'].count = results.length
+      return results
+    } catch (e) {
+      PLATFORM_STATUS['Aqarmap'].status = 'degraded'
+      return []
+    }
+  }
+
+  // Scrape from MatchPro internal demand DB (always works)
+  function searchMatchProDB(location, beds, priceMin, priceMax, purpose) {
+    const locAliases = LOC_ALIASES[location] || [location.toLowerCase()]
+    const matches = DEMAND_DATA.filter(d => {
+      const dLoc = (d.location || '').toLowerCase()
+      const locMatch = locAliases.some(a => dLoc.includes(a.toLowerCase())) ||
+                       dLoc.includes(location.toLowerCase())
+      if (!locMatch) return false
+      if (beds && d.bedrooms && Math.abs(d.bedrooms - parseInt(beds)) > 1) return false
+      if (priceMax && d.budget_max && d.budget_max > priceMax * 1.3) return false
+      if (priceMin && d.budget_max && d.budget_max < priceMin * 0.5) return false
+      const dIntent = (d.intent || '').toLowerCase()
+      if (purpose === 'rent' && !dIntent.includes('rent')) return false
+      return true
+    }).slice(0, 25)
+
+    PLATFORM_STATUS['MatchPro DB'].count = matches.length
+    PLATFORM_STATUS['MatchPro DB'].last_scraped = new Date().toISOString()
+
+    return matches.map((d, i) => ({
+      id: `mp_${d.id || i}_${Date.now()}`,
+      name: d.sender_name || d.name || `Buyer #${i + 1}`,
+      match_score: 0,
+      location: d.location || location,
+      bedrooms: d.bedrooms || null,
+      budget: d.budget_max || null,
+      price: null,
+      message: d.raw_message || d.message || `Looking for ${beds || '?'}BR in ${location}`,
+      phone: d.phone || d.sender_phone || '',
+      source: 'MatchPro DB',
+      source_url: null,
+      posted_at: d.created_at || d.timestamp || new Date().toISOString(),
+      property_type: d.property_type || 'apartment',
+      intent: d.intent === 'rent' ? 'rent' : 'buy',
+      urgency: d.urgency || 'normal',
+      area_sqm: d.area_sqm || null,
+    }))
+  }
+
+  // Calculate match score 0–100
+  function calcMatchScore(match, params) {
+    let score = 0
+    const { location, bedrooms, price_min, price_max, purpose } = params
+
+    // Location (30 pts)
+    const mLoc = (match.location || '').toLowerCase()
+    const pLoc = (location || '').toLowerCase()
+    const aliases = LOC_ALIASES[location] || []
+    if (mLoc === pLoc || aliases.some(a => mLoc.includes(a.toLowerCase()))) score += 30
+    else if (mLoc.includes(pLoc.split(' ')[0].toLowerCase())) score += 15
+
+    // Bedrooms (20 pts)
+    if (!bedrooms || !match.bedrooms) score += 10
+    else if (match.bedrooms === parseInt(bedrooms)) score += 20
+    else if (Math.abs(match.bedrooms - parseInt(bedrooms)) === 1) score += 10
+
+    // Budget/price (25 pts)
+    const budget = match.budget || match.price
+    if (!budget) score += 12
+    else if (price_max && budget <= price_max) score += 25
+    else if (price_max && budget <= price_max * 1.2) score += 15
+    else if (!price_max) score += 12
+
+    // Intent (10 pts)
+    const mIntent = match.intent || ''
+    if (purpose === 'rent' && (mIntent === 'rent' || mIntent === 'rent_out')) score += 10
+    else if (purpose === 'buy' && (mIntent === 'buy' || mIntent === 'sell')) score += 10
+    else if (!purpose) score += 5
+
+    // Type match (10 pts — approx)
+    score += 5
+
+    // Bonuses
+    if (match.urgency === 'urgent') score += 5
+    const postedMs = Date.now() - new Date(match.posted_at).getTime()
+    if (postedMs < 86400000) score += 5  // posted today
+
+    return Math.min(100, Math.max(0, score))
+  }
+
+  // Dedup by phone+location
+  function dedup(arr) {
+    const seen = new Set()
+    return arr.filter(m => {
+      const key = `${(m.phone || '').replace(/\D/g, '').slice(-8)}_${(m.location || '').toLowerCase().slice(0, 8)}_${m.price || m.budget || 0}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+
+  // POST /api/scrape/live-search — parallel search all platforms
+  app.post('/api/scrape/live-search', async (req, res) => {
+    const start = Date.now()
+    const { location, bedrooms, price_min, price_max, purpose, type } = req.body
+
+    if (!location) return res.status(400).json({ error: 'location is required' })
+
+    const cacheKey = `${location}:${bedrooms}:${purpose}:${price_min}:${price_max}`
+    const cached = SCRAPE_CACHE.get(cacheKey)
+    if (cached && Date.now() - cached.ts < SCRAPE_TTL_MS) {
+      return res.json({ ...cached.data, cached: true, search_time_ms: Date.now() - start })
+    }
+
+    try {
+      // Run all scrapers in parallel, never crash on failure
+      const [pfResults, aqResults, dbResults] = await Promise.allSettled([
+        scrapePropertyFinderSearch(location, bedrooms, purpose),
+        scrapeAqarmap(location, bedrooms, purpose),
+        Promise.resolve(searchMatchProDB(location, bedrooms, price_min, price_max, purpose)),
+      ])
+
+      let allMatches = [
+        ...(pfResults.status === 'fulfilled' ? pfResults.value : []),
+        ...(aqResults.status === 'fulfilled' ? aqResults.value : []),
+        ...(dbResults.status === 'fulfilled' ? dbResults.value : []),
+      ]
+
+      // Dedup
+      allMatches = dedup(allMatches)
+
+      // Score each
+      allMatches = allMatches.map(m => ({
+        ...m,
+        match_score: calcMatchScore(m, { location, bedrooms, price_min, price_max, purpose }),
+      }))
+
+      // Sort by score, filter >= 30
+      allMatches = allMatches
+        .filter(m => m.match_score >= 30)
+        .sort((a, b) => b.match_score - a.match_score)
+        .slice(0, 50)
+
+      const result = {
+        matches: allMatches,
+        total: allMatches.length,
+        sources: Object.entries(PLATFORM_STATUS).map(([name, s]) => ({ name, ...s })),
+        search_time_ms: Date.now() - start,
+        cached: false,
+      }
+
+      SCRAPE_CACHE.set(cacheKey, { data: result, ts: Date.now() })
+      res.json(result)
+    } catch (err) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  // GET /api/scrape/status
+  app.get('/api/scrape/status', (req, res) => {
+    res.json({
+      platforms: Object.entries(PLATFORM_STATUS).map(([name, s]) => ({ name, ...s })),
+      cache_size: SCRAPE_CACHE.size,
+    })
+  })
+
+  // GET /api/scrape/aqarmap
+  app.get('/api/scrape/aqarmap', async (req, res) => {
+    const { location = 'Madinaty', beds } = req.query
+    try {
+      const data = await scrapeAqarmap(location, beds)
+      res.json({ status: 'ok', count: data.length, data })
+    } catch (err) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  // ─── NLP Classification Engine ────────────────────────────────────────────────
+
+  const ARABIC_NUMBER_MAP = {
+    'مليار': 1e9, 'مليارين': 2e9,
+    'مليون': 1e6, 'مليونين': 2e6,
+    'نص مليون': 500000, 'ونص مليون': 500000,
+    'مليون ونص': 1500000, 'مليون و نص': 1500000,
+    'تلاتة مليون': 3e6, 'اربعة مليون': 4e6, 'خمسة مليون': 5e6,
+    'ستة مليون': 6e6, 'سبعة مليون': 7e6, 'تمنية مليون': 8e6, 'تسعة مليون': 9e6, 'عشرة مليون': 10e6,
+    'ربع مليون': 250000, 'نص': 0.5,
+    'ألف': 1000, 'الف': 1000, 'آلاف': 1000, 'الاف': 1000,
+  }
+
+  const LOCATION_MAP = {
+    'مدينتي': 'Madinaty', 'مدينة نصر': 'Nasr City', 'مدينةنصر': 'Nasr City',
+    'الرحاب': 'Rehab City', 'رحاب': 'Rehab City',
+    'التجمع الخامس': 'Fifth Settlement', 'التجمع': 'New Cairo', 'تجمع': 'New Cairo',
+    'القاهرة الجديدة': 'New Cairo', 'الشيخ زايد': 'Sheikh Zayed', 'شيخ زايد': 'Sheikh Zayed',
+    'السادس من اكتوبر': '6th October', 'اكتوبر': '6th October', 'سادس اكتوبر': '6th October',
+    'المستقبل': 'Mostakbal City', 'مدينة المستقبل': 'Mostakbal City', 'مستقبل سيتي': 'Mostakbal City',
+    'بدر': 'Badr City', 'مدينة بدر': 'Badr City',
+    'العبور': 'Obour', 'عبور': 'Obour',
+    'الشروق': 'Shorouk', 'شروق': 'Shorouk',
+    'مصر الجديدة': 'Heliopolis', 'هليوبوليس': 'Heliopolis',
+    'الزمالك': 'Zamalek', 'زمالك': 'Zamalek',
+    'المعادي': 'Maadi', 'معادي': 'Maadi',
+    'الساحل الشمالي': 'North Coast', 'الساحل': 'North Coast', 'ساحل': 'North Coast',
+    'العاصمة الإدارية': 'New Capital', 'العاصمة': 'New Capital', 'العاصمه': 'New Capital',
+    'مدينتى': 'Madinaty',
+    'المهندسين': 'Mohandiseen', 'مهندسين': 'Mohandiseen',
+    'الدقي': 'Dokki', 'دقي': 'Dokki',
+    'حلوان': 'Helwan', 'كاتكات': 'Katameya', 'كتامية': 'Katameya',
+    'عين السخنة': 'Ain Sokhna', 'السخنة': 'Ain Sokhna',
+    'الغردقة': 'El Gouna', 'الجونة': 'El Gouna',
+    'بورسعيد': 'Port Said', 'الإسكندرية': 'Alexandria', 'اسكندرية': 'Alexandria',
+    'السويس': 'Suez', 'المنصورة': 'Mansoura', 'دمياط': 'Damietta',
+    'الفيوم': 'Fayoum', 'اسيوط': 'Asyut', 'اسوان': 'Aswan',
+    'لوكسور': 'Luxor', 'سوهاج': 'Sohag', 'قنا': 'Qena',
+    'بني سويف': 'Beni Suef', 'المنيا': 'Minya',
+    'طنطا': 'Tanta', 'الزقازيق': 'Zagazig', 'بنها': 'Banha',
+    'شبرا': 'Shubra', 'مدينة العاشر': 'Tenth of Ramadan', 'العاشر': 'Tenth of Ramadan',
+    'obour': 'Obour', 'rehab': 'Rehab City', 'madinaty': 'Madinaty',
+    'new cairo': 'New Cairo', 'sheikh zayed': 'Sheikh Zayed', '6th october': '6th October',
+  }
+
+  const DEMAND_KEYWORDS = [
+    'مطلوب', 'عايز', 'عاوز', 'محتاج', 'ابحث عن', 'بدور على', 'نفسي في',
+    'عايزة', 'محتاجة', 'بدورة على', 'مطلوبة', 'عاوزة', 'بدور',
+    'حد عنده', 'مين عنده', 'في إيه', 'في ايه', 'ابحث',
+    'looking for', 'need', 'wanted', 'searching', 'require',
+    'anyone have', 'do you have', 'i want', 'i need', 'buyer', 'renter', 'tenant',
+    'نريد', 'نبحث', 'هنفسنا في', 'نتطلب',
+  ]
+
+  const SUPPLY_KEYWORDS = [
+    'للبيع', 'للإيجار', 'للايجار', 'متاح', 'عرض', 'معروض',
+    'عندي شقة', 'عندي وحده', 'عندي فيلا', 'عندي دوبلكس',
+    'for sale', 'for rent', 'available', 'listing', 'offering',
+    'selling', 'landlord', 'price per meter', 'سعر المتر',
+    'لديّ', 'لدي', 'بيعمل', 'هتاجر', 'عائد', 'استثمار',
+  ]
+
+  const BROKER_KEYWORDS = [
+    'بيدور على عمولة', 'وسيط', 'بروكر', 'سمسار',
+    'عميل جاهز', 'مشتري جاهز', 'عنده ميزانية', 'عندي عميل',
+    'معاه عميل', 'كوميشن', 'عمولة',
+    'broker', 'agent', 'commission', 'client ready',
+  ]
+
+  const PROPERTY_TYPES = {
+    'شقة': 'apartment', 'شقه': 'apartment', 'apartment': 'apartment',
+    'فيلا': 'villa', 'villa': 'villa',
+    'دوبلكس': 'duplex', 'duplex': 'duplex',
+    'ستوديو': 'studio', 'studio': 'studio',
+    'تاون هاوس': 'townhouse', 'townhouse': 'townhouse',
+    'شاليه': 'chalet', 'chalet': 'chalet',
+    'بنتهاوس': 'penthouse', 'penthouse': 'penthouse',
+    'روف': 'roof', 'roof': 'roof',
+    'وحدة': 'unit', 'محل': 'shop', 'مكتب': 'office',
+    'ارض': 'land', 'أرض': 'land',
+  }
+
+  function normalizeArabicNumber(text) {
+    let result = null
+    const lower = text.toLowerCase()
+
+    // "X مليون ونص" pattern
+    const millionHalfRe = /(\d+(?:\.\d+)?)\s*مليون\s*و\s*نص/g
+    let m
+    while ((m = millionHalfRe.exec(lower)) !== null) {
+      result = (parseFloat(m[1]) + 0.5) * 1e6
+    }
+    if (result) return result
+
+    // "X مليون" pattern
+    const millionRe = /(\d+(?:\.\d+)?)\s*(مليون|million|m\b)/gi
+    while ((m = millionRe.exec(text)) !== null) {
+      result = parseFloat(m[1]) * 1e6
+    }
+    if (result) return result
+
+    // "X ألف" pattern
+    const thousandRe = /(\d+(?:\.\d+)?)\s*(ألف|الف|k\b)/gi
+    while ((m = thousandRe.exec(text)) !== null) {
+      result = parseFloat(m[1]) * 1000
+    }
+    if (result) return result
+
+    // Named patterns
+    for (const [key, val] of Object.entries(ARABIC_NUMBER_MAP)) {
+      if (lower.includes(key)) {
+        const numBefore = text.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*${key}`))
+        if (numBefore) result = parseFloat(numBefore[1]) * (typeof val === 'number' ? val : 1e6)
+        else result = typeof val === 'number' ? val : null
+        if (result) break
+      }
+    }
+    if (result) return result
+
+    // Plain number in range 100000–50000000
+    const numRe = /(\d{6,8})/g
+    while ((m = numRe.exec(text)) !== null) {
+      const n = parseInt(m[1])
+      if (n >= 100000 && n <= 50000000) { result = n; break }
+    }
+
+    return result
+  }
+
+  function extractLocation(text) {
+    const lower = text.toLowerCase()
+    for (const [arabic, english] of Object.entries(LOCATION_MAP)) {
+      if (lower.includes(arabic.toLowerCase())) return english
+    }
+    // English location names
+    const engLocations = ['madinaty', 'rehab', 'new cairo', 'sheikh zayed', '6th october', 'nasr city', 'heliopolis', 'zamalek', 'maadi', 'north coast', 'new capital', 'palm hills', 'katameya']
+    for (const loc of engLocations) {
+      if (lower.includes(loc)) return LOCATION_MAP[loc] || loc.split(' ').map(w => w[0].toUpperCase() + w.slice(1)).join(' ')
+    }
+    return null
+  }
+
+  function extractBedrooms(text) {
+    // Arabic number words
+    const arabicNums = { 'واحد': 1, 'اتنين': 2, 'اثنين': 2, 'تلاتة': 3, 'ثلاثة': 3, 'اربعة': 4, 'أربعة': 4, 'خمسة': 5 }
+    const lower = text.toLowerCase()
+
+    // "X غرف" or "X اوض" or "X rooms" or "XBR"
+    let m
+    const re1 = /(\d)\s*(غرف|غرفة|اوض|اوضة|أوض|bedroom|br\b|rooms?)/i
+    if ((m = re1.exec(text))) return parseInt(m[1])
+
+    // Arabic word + غرف
+    for (const [word, num] of Object.entries(arabicNums)) {
+      if (lower.includes(word + ' غرف') || lower.includes(word + ' اوض') || lower.includes(word + ' أوض')) return num
+    }
+
+    // "3BR" shorthand
+    const re2 = /(\d)\s*br\b/i
+    if ((m = re2.exec(text))) return parseInt(m[1])
+
+    return null
+  }
+
+  function extractBudget(text) { return normalizeArabicNumber(text) }
+
+  function extractPropertyType(text) {
+    const lower = text.toLowerCase()
+    for (const [key, val] of Object.entries(PROPERTY_TYPES)) {
+      if (lower.includes(key.toLowerCase())) return val
+    }
+    return 'apartment'
+  }
+
+  function extractContact(text) {
+    const re = /(\+?20|0)[\s\-]?1[0125][\s\-]?\d{4}[\s\-]?\d{4}/g
+    const m = text.match(re)
+    return m ? m[0].replace(/[\s\-]/g, '') : null
+  }
+
+  function extractUrgency(text) {
+    const urgentKw = ['ضروري', 'عاجل', 'urgent', 'بسرعة', 'فوري', 'asap', 'quickly', 'immediately', 'يوم الحد', 'اسبوع']
+    const lower = text.toLowerCase()
+    return urgentKw.some(k => lower.includes(k)) ? 'urgent' : 'normal'
+  }
+
+  function extractFinishing(text) {
+    const lower = text.toLowerCase()
+    if (lower.includes('متشطب') || lower.includes('fully finished')) return 'fully_finished'
+    if (lower.includes('نص تشطيب') || lower.includes('semi')) return 'semi_finished'
+    if (lower.includes('كور وشل') || lower.includes('core and shell')) return 'core_shell'
+    if (lower.includes('غير متشطب') || lower.includes('unfinished')) return 'unfinished'
+    return null
+  }
+
+  function extractAreaSqm(text) {
+    const m = text.match(/(\d{2,4})\s*(متر|م²|sqm|m2|sq\.?\s*m)/i)
+    return m ? parseInt(m[1]) : null
+  }
+
+  function extractFloor(text) {
+    const floorMap = { 'أرضي': 0, 'ارضي': 0, 'دور أرضي': 0, 'الأول': 1, 'الثاني': 2, 'الثالث': 3, 'الرابع': 4, 'الخامس': 5 }
+    const lower = text.toLowerCase()
+    for (const [k, v] of Object.entries(floorMap)) { if (lower.includes(k.toLowerCase())) return v }
+    const m = text.match(/floor\s*(\d+)|الدور\s*(\d+)/i)
+    return m ? parseInt(m[1] || m[2]) : null
+  }
+
+  function extractAmenities(text) {
+    const amenMap = {
+      'مسبح': 'pool', 'pool': 'pool', 'حديقة': 'garden', 'garden': 'garden',
+      'جراج': 'garage', 'garage': 'garage', 'أمن': 'security', 'security': 'security',
+      'نادي': 'club_house', 'gym': 'gym', 'جيم': 'gym', 'مصعد': 'elevator',
+      'كمبوند': 'compound', 'compound': 'compound',
+    }
+    const lower = text.toLowerCase()
+    return Object.entries(amenMap).filter(([k]) => lower.includes(k.toLowerCase())).map(([, v]) => v)
+  }
+
+  // Main classify function
+  function classifyMessage(message) {
+    const lower = message.toLowerCase()
+    const words = message.split(/\s+/).length
+
+    // Too short
+    if (words < 3) {
+      const hasRE = [...DEMAND_KEYWORDS, ...SUPPLY_KEYWORDS].some(k => lower.includes(k.toLowerCase()))
+      if (!hasRE) return { classification: 'IRRELEVANT', confidence: 99, match_ready: false, extracted: {} }
+    }
+
+    // No RE keywords at all
+    const hasAnyRE = [...DEMAND_KEYWORDS, ...SUPPLY_KEYWORDS, ...BROKER_KEYWORDS].some(k => lower.includes(k.toLowerCase()))
+    const hasLocation = extractLocation(message) !== null
+    const hasBudget = extractBudget(message) !== null
+    const hasBeds = extractBedrooms(message) !== null
+    const hasPropertyKw = Object.keys(PROPERTY_TYPES).some(k => lower.includes(k.toLowerCase()))
+
+    if (!hasAnyRE && !hasLocation && !hasBudget) {
+      return { classification: 'IRRELEVANT', confidence: 97, match_ready: false, extracted: {} }
+    }
+
+    // Broker detection (before demand/supply)
+    const brokerHits = BROKER_KEYWORDS.filter(k => lower.includes(k.toLowerCase()))
+    if (brokerHits.length > 0) {
+      const budget = extractBudget(message)
+      return {
+        classification: 'BROKER_DEMAND',
+        confidence: Math.min(98, 80 + brokerHits.length * 6),
+        match_ready: true,
+        extracted: {
+          intent: 'buy',
+          location: extractLocation(message),
+          bedrooms: extractBedrooms(message),
+          budget_max: budget,
+          property_type: extractPropertyType(message),
+          urgency: extractUrgency(message),
+          contact: extractContact(message),
+        }
+      }
+    }
+
+    // Demand detection
+    const demandHits = DEMAND_KEYWORDS.filter(k => lower.includes(k.toLowerCase()))
+    // Supply detection
+    const supplyHits = SUPPLY_KEYWORDS.filter(k => lower.includes(k.toLowerCase()))
+
+    // Contextual supply: message starts with property specs
+    const startsWithSpecs = /^\s*(\d|شقة|فيلا|دوبلكس|ستوديو)/.test(message) ||
+      (hasPropertyKw && hasBudget && hasLocation && supplyHits.length === 0 && demandHits.length === 0)
+
+    if (demandHits.length === 0 && (supplyHits.length > 0 || startsWithSpecs)) {
+      // SUPPLY
+      const price = extractBudget(message)
+      const area = extractAreaSqm(message)
+      const conf = Math.min(99, 70 + supplyHits.length * 8 + (hasLocation ? 5 : 0) + (price ? 5 : 0))
+      return {
+        classification: 'SUPPLY',
+        confidence: conf,
+        match_ready: true,
+        extracted: {
+          intent: lower.includes('للإيجار') || lower.includes('للايجار') ? 'rent' : 'sell',
+          location: extractLocation(message),
+          bedrooms: extractBedrooms(message),
+          price: price,
+          area_sqm: area,
+          property_type: extractPropertyType(message),
+          floor: extractFloor(message),
+          finishing: extractFinishing(message),
+          amenities: extractAmenities(message),
+          contact: extractContact(message),
+        }
+      }
+    }
+
+    if (demandHits.length > 0 || (hasLocation && hasBudget)) {
+      // DEMAND
+      const budget = extractBudget(message)
+      const conf = Math.min(99, 70 + demandHits.length * 8 + (hasLocation ? 5 : 0) + (budget ? 5 : 0) + (hasBeds ? 3 : 0))
+      return {
+        classification: 'DEMAND',
+        confidence: conf,
+        match_ready: true,
+        extracted: {
+          intent: lower.includes('للإيجار') || lower.includes('للايجار') || lower.includes('rent') ? 'rent' : 'buy',
+          location: extractLocation(message),
+          bedrooms: extractBedrooms(message),
+          budget_max: budget,
+          property_type: extractPropertyType(message),
+          urgency: extractUrgency(message),
+          finishing: extractFinishing(message),
+          contact: extractContact(message),
+        }
+      }
+    }
+
+    // Fallback: has location or RE-adjacent words but no clear signal
+    if (hasPropertyKw || hasLocation) {
+      return {
+        classification: 'DEMAND',
+        confidence: 55,
+        match_ready: false,
+        extracted: {
+          intent: 'buy',
+          location: extractLocation(message),
+          bedrooms: extractBedrooms(message),
+          budget_max: extractBudget(message),
+          property_type: extractPropertyType(message),
+        }
+      }
+    }
+
+    return { classification: 'IRRELEVANT', confidence: 85, match_ready: false, extracted: {} }
+  }
+
+  // POST /api/nlp/classify
+  app.post('/api/nlp/classify', (req, res) => {
+    const { message, sender_name, sender_phone } = req.body
+    if (!message) return res.status(400).json({ error: 'message is required' })
+
+    const result = classifyMessage(message)
+
+    // Merge sender info
+    if (sender_name) result.extracted.name = sender_name
+    if (sender_phone) result.extracted.contact = result.extracted.contact || sender_phone
+
+    // Auto-add to demand DB if high-confidence DEMAND
+    if (result.classification === 'DEMAND' && result.confidence >= 80 && result.match_ready) {
+      const newRecord = {
+        id: `nlp_${Date.now()}`,
+        sender_name: sender_name || 'NLP Classified',
+        sender_phone: sender_phone || result.extracted.contact || '',
+        raw_message: message,
+        location: result.extracted.location,
+        bedrooms: result.extracted.bedrooms,
+        budget_max: result.extracted.budget_max,
+        property_type: result.extracted.property_type,
+        intent: result.extracted.intent || 'buy',
+        urgency: result.extracted.urgency,
+        created_at: new Date().toISOString(),
+        source: 'nlp_api',
+      }
+      DEMAND_DATA.push(newRecord)
+    }
+
+    res.json(result)
+  })
+
   // ─── WhatsApp Webhook (Green API) ─────────────────────────────────────────────
   
   const GREEN_API_INSTANCE = process.env.GREEN_API_INSTANCE_ID || '7105409203'

@@ -12,6 +12,9 @@ import Settings from './pages/Settings'
 import WhatsApp from './pages/WhatsApp'
 import MySearch from './pages/MySearch'
 import VersionManager from './pages/VersionManager'
+import MarketMap from './pages/MarketMap'
+import NLPClassifier from './pages/NLPClassifier'
+import LiveSearch from './pages/LiveSearch'
 import './App.css'
 
 export type Page =
@@ -27,6 +30,9 @@ export type Page =
   | 'settings'
   | 'my-search'
   | 'version-manager'
+  | 'market-map'
+  | 'nlp-classifier'
+  | 'live-search'
 
 const PAGE_META: Record<Page, { title: string; icon: string; desc: string }> = {
   'dashboard':           { title: 'Overview Dashboard',       icon: '⊞', desc: 'Real-time market snapshot' },
@@ -41,6 +47,9 @@ const PAGE_META: Record<Page, { title: string; icon: string; desc: string }> = {
   'settings':            { title: 'Settings',                 icon: '⚙️', desc: 'Configure preferences & alerts' },
   'my-search':           { title: 'My Search',                icon: '🔍', desc: 'Search all supply in the system' },
   'version-manager':     { title: 'Version Manager',          icon: '🔒', desc: 'Manage feature unlock tiers v1–v10' },
+  'market-map':          { title: 'Market Intelligence Map',   icon: '🗺️', desc: 'Live Mapbox demand heatmap — Cairo' },
+  'nlp-classifier':      { title: 'NLP Classifier',           icon: '🧬', desc: 'Arabic/English message classification engine' },
+  'live-search':         { title: 'Live Scraper',              icon: '🔭', desc: 'Real-time multi-platform property search' },
 }
 
 const REFRESH_INTERVAL_MS = 60_000
@@ -131,6 +140,9 @@ export default function App() {
       case 'settings':            return <Settings            {...props} />
       case 'my-search':           return <MySearch            {...props} />
       case 'version-manager':     return <VersionManager      {...props} />
+      case 'market-map':          return <MarketMap           {...props} />
+      case 'nlp-classifier':      return <NLPClassifier       {...props} />
+      case 'live-search':         return <LiveSearch          {...props} />
       default:                    return <Dashboard           {...props} />
     }
   }
