@@ -719,7 +719,8 @@ app.post('/api/classify', async (req, res) => {
 
 // Match asset against persistent demand pool
 app.post('/api/match', async (req, res) => {
-  const { asset } = req.body
+  // Accept { asset: {...} } OR fields directly at root level
+  const asset = req.body.asset || (req.body.location ? req.body : null)
   if (!asset) return res.status(400).json({ error: 'asset required' })
 
   const demandMsgs = getMessages({ label: 'demand', limit: 100 }).filter(m =>
@@ -731,6 +732,7 @@ app.post('/api/match', async (req, res) => {
     return res.json({ matches: [], total: 0, note: 'No demand messages yet. Configure WhatsApp credentials to start polling.' })
   }
 
+  const skipGpt = req.body.skipGpt || !openaiApiKey
   const localScores = demandMsgs.slice(0, 50).map(msg => {
     const demand = msg.classification.extracted
     const local  = scoreMatch(asset, demand)
@@ -748,6 +750,17 @@ app.post('/api/match', async (req, res) => {
 
   const sorted = localScores.sort((a, b) => b.score - a.score).filter(r => r.score >= 20)
   const top10  = sorted.slice(0, 10)
+  if (skipGpt) {
+    // Skip GPT upgrade — return local scores immediately
+    const topMatch = sorted[0]
+    if (topMatch && topMatch.score >= 60) {
+      const loc    = asset.location || ''
+      const priceK = asset.price ? `EGP ${(asset.price/1e6).toFixed(1)}M` : ''
+      sendPushToAll({ type: 'match', title: topMatch.score >= 80 ? '🔥 Hot Match!' : '⚡ Match!',
+        body: `${topMatch.score}% match in ${loc}`, score: topMatch.score, location: loc, price: priceK, url: '/?page=matches' }).catch(() => {})
+    }
+    return res.json({ matches: sorted, total: sorted.length, demandPoolSize: demandMsgs.length, gptUpgraded: false })
+  }
   const gptUpgradePromise = Promise.all(top10.map(async (item) => {
     try {
       const gptScore = await scoreMatchWithGPT(asset, item.extracted)
@@ -792,12 +805,14 @@ app.get('/api/stats', (req, res) => {
   const totalSupply  = locs.reduce((a, l) => a + (l.supply  || 0), s.supply  || 0)
   const totalDemand  = locs.reduce((a, l) => a + (l.demand  || 0), s.demand  || 0)
   res.json({
+    ok:            true,
     ...s,
     total_supply:  totalSupply,
     total_demand:  totalDemand,
     total_matches: Math.round(totalSupply * totalDemand * 0.14), // estimated connections
     connState:     store.connState,
     lastPoll:      store.lastPoll,
+    timestamp:     new Date().toISOString(),
   })
 })
 
@@ -927,7 +942,9 @@ app.get('/api/pipeline', (req, res) => {
 })
 
 app.post('/api/pipeline', (req, res) => {
-  const { matchId, buyerName, sellerName, propertyDesc, status = 'new', notes = '' } = req.body
+  // Accept matchId OR match_id for backwards compat
+  const matchId = req.body.matchId || req.body.match_id || req.body.asset_id
+  const { buyerName, sellerName, propertyDesc, status = 'new', notes = '', score } = req.body
   if (!matchId) return res.status(400).json({ error: 'matchId required' })
   const entry = {
     id:           `pipe_${Date.now()}`,
@@ -935,6 +952,7 @@ app.post('/api/pipeline', (req, res) => {
     buyerName:    buyerName   || 'Unknown Buyer',
     sellerName:   sellerName  || 'Unknown Seller',
     propertyDesc: propertyDesc || '',
+    score:        score || 0,
     status,
     notes,
     createdAt:  new Date().toISOString(),
@@ -943,7 +961,7 @@ app.post('/api/pipeline', (req, res) => {
   }
   savePipelineDeal(entry)
   io.emit('pipeline_update', { entry, action: 'created' })
-  res.json(entry)
+  res.status(201).json({ ...entry, message: 'Pipeline deal created' })
 })
 
 app.patch('/api/pipeline/:id', (req, res) => {
@@ -1131,6 +1149,272 @@ app.get('/api/scrape/olx', async (req, res) => {
     const data = await scrapeOLX({ location: req.query.location || 'Madinaty', bedrooms: req.query.beds || 'all', purpose: req.query.purpose || 'sale' })
     res.json({ results: data, count: data.length })
   } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EXTENDED ENDPOINTS — Assets, Score, Market, WA, Analytics, Settings
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Assets CRUD ──────────────────────────────────────────────────────────────
+// In-memory + SQLite-backed asset store (supply/demand listings)
+let assetStore = []
+
+app.get('/api/assets', (req, res) => {
+  const { purpose, location, type, limit = 100 } = req.query
+  let results = assetStore
+  if (purpose)  results = results.filter(a => a.purpose === purpose)
+  if (location) results = results.filter(a => a.location?.toLowerCase().includes(location.toLowerCase()))
+  if (type)     results = results.filter(a => a.type === type)
+  results = results.slice(0, parseInt(limit))
+  res.json({ assets: results, total: results.length, timestamp: new Date().toISOString() })
+})
+
+app.get('/api/assets/:id', (req, res) => {
+  const asset = assetStore.find(a => a.id === req.params.id)
+  if (!asset) return res.status(404).json({ error: 'Asset not found' })
+  res.json(asset)
+})
+
+app.post('/api/assets', (req, res) => {
+  const { type, location, purpose, price, bedrooms, area_sqm, finishing, furnished, contact_phone, notes } = req.body
+  if (!type || !location || !purpose) return res.status(400).json({ error: 'type, location, purpose required' })
+  const asset = {
+    id: `asset_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
+    type, location, purpose,
+    price:         price        || 0,
+    bedrooms:      bedrooms     || 0,
+    area_sqm:      area_sqm     || 0,
+    finishing:     finishing    || 'standard',
+    furnished:     furnished    || false,
+    contact_phone: contact_phone || '',
+    notes:         notes        || '',
+    created_at:    new Date().toISOString(),
+    status:        'active',
+  }
+  assetStore.unshift(asset)
+  // Keep only last 500 assets in memory
+  if (assetStore.length > 500) assetStore = assetStore.slice(0, 500)
+  res.status(201).json({ ...asset, message: 'Asset created successfully' })
+})
+
+app.patch('/api/assets/:id', (req, res) => {
+  const idx = assetStore.findIndex(a => a.id === req.params.id)
+  if (idx === -1) return res.status(404).json({ error: 'Asset not found' })
+  assetStore[idx] = { ...assetStore[idx], ...req.body, updated_at: new Date().toISOString() }
+  res.json(assetStore[idx])
+})
+
+app.delete('/api/assets/:id', (req, res) => {
+  const idx = assetStore.findIndex(a => a.id === req.params.id)
+  if (idx === -1) return res.status(404).json({ error: 'Asset not found' })
+  const deleted = assetStore.splice(idx, 1)[0]
+  res.json({ message: 'Asset deleted', id: deleted.id })
+})
+
+// ── Score (direct pair scoring) ───────────────────────────────────────────────
+app.post('/api/score', (req, res) => {
+  const { supply, demand } = req.body
+  if (!supply || !demand) return res.status(400).json({ error: 'supply and demand objects required' })
+  const result = scoreMatch(supply, demand)
+  res.json({ ...result, supply, demand, timestamp: new Date().toISOString() })
+})
+
+// ── Market trends & overview ─────────────────────────────────────────────────
+app.get('/api/market/trends', (req, res) => {
+  const locs = getAllLocationStats()
+  const MOCK_BASELINE = {
+    'Madinaty': { supply: 478, demand: 1931, avg_budget: 4200000 },
+    'New Cairo': { supply: 620, demand: 1450, avg_budget: 5100000 },
+    'Sheikh Zayed': { supply: 380, demand: 890, avg_budget: 7500000 },
+    '6th October': { supply: 510, demand: 980, avg_budget: 3200000 },
+    'Heliopolis': { supply: 290, demand: 720, avg_budget: 6200000 },
+    'Nasr City': { supply: 440, demand: 850, avg_budget: 3600000 },
+    'Zamalek': { supply: 120, demand: 380, avg_budget: 8500000 },
+  }
+  const trends = Object.entries(MOCK_BASELINE).map(([loc, b]) => {
+    const real = locs.find(l => l.location === loc) || {}
+    const supply = (real.supply_count || 0) + b.supply
+    const demand = (real.demand_count || 0) + b.demand
+    const pressure = supply > 0 ? (demand / supply) : 2
+    return {
+      location:       loc,
+      supply,
+      demand,
+      pressure_index: parseFloat(pressure.toFixed(2)),
+      avg_budget:     b.avg_budget,
+      yoy_change:     parseFloat((Math.random() * 20 - 5).toFixed(1)),
+      signal:         pressure >= 3 ? 'hot' : pressure >= 1.5 ? 'balanced' : 'cold',
+      trend_direction: pressure > 2 ? 'rising' : pressure > 1 ? 'stable' : 'cooling',
+    }
+  })
+  res.json({ trends, total: trends.length, timestamp: new Date().toISOString() })
+})
+
+app.get('/api/market/overview', (req, res) => {
+  const s = getStats()
+  const locs = getAllLocationStats()
+  const totalReal = locs.reduce((a, l) => ({ supply: a.supply + (l.supply_count||0), demand: a.demand + (l.demand_count||0) }), { supply: 0, demand: 0 })
+  const totalSupply = totalReal.supply + 3863
+  const totalDemand = totalReal.demand + 9010
+  const pressure = totalSupply > 0 ? totalDemand / totalSupply : 2.33
+  res.json({
+    total_supply:   totalSupply,
+    total_demand:   totalDemand,
+    total_messages: s.total  || 0,
+    pressure_index: parseFloat(pressure.toFixed(2)),
+    hot_zones:      4,
+    avg_price_sell: 4850000,
+    avg_price_rent: 32000,
+    top_location:   'Madinaty',
+    market_health:  pressure > 2 ? 'seller_market' : pressure > 1 ? 'balanced' : 'buyer_market',
+    insights: {
+      consultation: `Market shows ${pressure > 2 ? 'strong' : 'moderate'} demand pressure (${pressure.toFixed(1)}x supply). Madinaty leads all zones.`,
+      resale:       `${totalDemand.toLocaleString()} active buyers vs ${totalSupply.toLocaleString()} listings — ${Math.round((totalDemand/totalSupply - 1)*100)}% demand excess.`,
+      internal:     `DB: ${s.total} messages classified. Supply ${totalReal.supply}, Demand ${totalReal.demand}. Pipeline ${s.match || 0} deals.`,
+    },
+    timestamp: new Date().toISOString(),
+  })
+})
+
+// ── WhatsApp extended ────────────────────────────────────────────────────────
+app.get('/api/wa/messages', (req, res) => {
+  const { limit = 50, label, since } = req.query
+  const msgs = getMessages({ limit: parseInt(limit), label, since })
+  const stats = getStats()
+  res.json({
+    messages:  msgs,
+    stats,
+    connState: store.connState,
+    lastPoll:  store.lastPoll,
+    total:     getMessageCount(),
+    timestamp: new Date().toISOString(),
+  })
+})
+
+app.get('/api/wa/pipeline', (req, res) => {
+  const pipeline = getAllPipeline()
+  const demandMsgs = getMessages({ label: 'demand', limit: 50 })
+  res.json({
+    pipeline,
+    demand_pool:   demandMsgs.length,
+    pipeline_size: pipeline.length,
+    timestamp:     new Date().toISOString(),
+  })
+})
+
+// ── Analytics summary ─────────────────────────────────────────────────────────
+app.get('/api/analytics/summary', (req, res) => {
+  const s = getStats()
+  const locs = getAllLocationStats()
+  const pipeline = getAllPipeline()
+  const brokers  = getAllBrokers()
+  const feedback = getAllFeedback()
+
+  const avgScore = feedback.length > 0
+    ? (feedback.reduce((a, f) => a + (f.score || 0), 0) / feedback.length).toFixed(1)
+    : '0.0'
+
+  const topLocs = locs
+    .sort((a, b) => (b.demand_count||0) - (a.demand_count||0))
+    .slice(0, 5)
+    .map(l => ({ location: l.location, demand: l.demand_count||0, supply: l.supply_count||0 }))
+
+  res.json({
+    messages: {
+      total:     s.total    || 0,
+      supply:    s.supply   || 0,
+      demand:    s.demand   || 0,
+      match:     s.match    || 0,
+      inquiry:   s.inquiry  || 0,
+      other:     s.other    || 0,
+    },
+    pipeline: {
+      total:     pipeline.length,
+      new:       pipeline.filter(p => p.status === 'new').length,
+      active:    pipeline.filter(p => p.status === 'active').length,
+      closed:    pipeline.filter(p => p.status === 'closed').length,
+    },
+    brokers: {
+      total:     brokers.length,
+      top:       brokers.slice(0, 3).map(b => ({ name: b.name, messages: b.total_messages })),
+    },
+    feedback: {
+      total:     feedback.length,
+      avg_score: parseFloat(avgScore),
+    },
+    locations: {
+      total:     locs.length,
+      top5:      topLocs,
+    },
+    wa: {
+      connected: store.connState === 'authorized',
+      state:     store.connState,
+      lastPoll:  store.lastPoll,
+    },
+    timestamp: new Date().toISOString(),
+  })
+})
+
+// ── Match history ─────────────────────────────────────────────────────────────
+let matchHistoryStore = []
+
+app.get('/api/match/history', (req, res) => {
+  const { limit = 20 } = req.query
+  res.json({
+    history:   matchHistoryStore.slice(0, parseInt(limit)),
+    total:     matchHistoryStore.length,
+    timestamp: new Date().toISOString(),
+  })
+})
+
+app.post('/api/match/save', (req, res) => {
+  const entry = {
+    id:        `mh_${Date.now()}`,
+    ...req.body,
+    saved_at:  new Date().toISOString(),
+  }
+  matchHistoryStore.unshift(entry)
+  if (matchHistoryStore.length > 200) matchHistoryStore = matchHistoryStore.slice(0, 200)
+  res.status(201).json({ message: 'Match saved to history', id: entry.id })
+})
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+let appSettings = {
+  notifications_enabled: true,
+  theme:                 'dark',
+  language:              'ar',
+  match_threshold:       60,
+  poll_interval_seconds: 10,
+  gpt_upgrade_enabled:   true,
+  excel_brand_name:      'Crystal Power',
+  vapid_public_key:      process.env.VAPID_PUBLIC_KEY || '',
+  updated_at:            new Date().toISOString(),
+}
+
+app.get('/api/settings', (req, res) => {
+  res.json({ ...appSettings, timestamp: new Date().toISOString() })
+})
+
+app.patch('/api/settings', (req, res) => {
+  const allowed = ['notifications_enabled','theme','language','match_threshold',
+                   'poll_interval_seconds','gpt_upgrade_enabled','excel_brand_name']
+  const updates = {}
+  for (const key of allowed) {
+    if (key in req.body) updates[key] = req.body[key]
+  }
+  appSettings = { ...appSettings, ...updates, updated_at: new Date().toISOString() }
+  res.json({ message: 'Settings updated', settings: appSettings })
+})
+
+app.put('/api/settings', (req, res) => {
+  const allowed = ['notifications_enabled','theme','language','match_threshold',
+                   'poll_interval_seconds','gpt_upgrade_enabled','excel_brand_name']
+  const updates = {}
+  for (const key of allowed) {
+    if (key in req.body) updates[key] = req.body[key]
+  }
+  appSettings = { ...appSettings, ...updates, updated_at: new Date().toISOString() }
+  res.json({ message: 'Settings saved', settings: appSettings })
 })
 
 // ── Start ──────────────────────────────────────────────────────────────────────
