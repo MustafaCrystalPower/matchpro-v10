@@ -1,10 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import Sidebar from './components/Sidebar'
-<<<<<<< HEAD
 import { ToastContainer, NotificationBell, NotificationPanel, PWAInstallBanner, startMatchWatcher } from './components/NotificationSystem'
-=======
-import MatchNotifications, { NotificationBell, useNotifications } from './components/MatchNotifications'
->>>>>>> origin/main
 import Dashboard from './pages/Dashboard'
 import MarketIntelligence from './pages/MarketIntelligence'
 import SupplyDemand from './pages/SupplyDemand'
@@ -15,19 +11,11 @@ import HeatMap from './pages/HeatMap'
 import APIExplorer from './pages/APIExplorer'
 import Settings from './pages/Settings'
 import WhatsApp from './pages/WhatsApp'
-<<<<<<< HEAD
 import BrokerAnalytics from './pages/BrokerAnalytics'
 import CRMPipeline from './pages/CRMPipeline'
 import MarketMap from './pages/MarketMap'
 import LiveScraper from './pages/LiveScraper'
 import NLPEngine from './pages/NLPEngine'
-=======
-import MySearch from './pages/MySearch'
-import VersionManager from './pages/VersionManager'
-import MarketMap from './pages/MarketMap'
-import NLPClassifier from './pages/NLPClassifier'
-import LiveSearch from './pages/LiveSearch'
->>>>>>> origin/main
 import './App.css'
 
 export type Page =
@@ -41,7 +29,6 @@ export type Page =
   | 'whatsapp'
   | 'api-explorer'
   | 'settings'
-<<<<<<< HEAD
   | 'broker-analytics'
   | 'crm-pipeline'
   | 'market-map'
@@ -54,38 +41,16 @@ const PAGE_META: Record<Page, { title: string; icon: string; desc: string }> = {
   'supply-demand':       { title: 'Supply & Demand',          icon: '⚖️', desc: 'Browse listings & requests' },
   'matches':             { title: 'Property Matches',         icon: '🎯', desc: 'Find qualified buyers instantly' },
   'asset-matcher':       { title: 'Asset Matcher',            icon: '🏆', desc: 'Match your asset across all platforms' },
-=======
-  | 'my-search'
-  | 'version-manager'
-  | 'market-map'
-  | 'nlp-classifier'
-  | 'live-search'
-
-const PAGE_META: Record<Page, { title: string; icon: string; desc: string }> = {
-  'dashboard':           { title: 'Overview Dashboard',       icon: '⊞', desc: 'Real-time market snapshot' },
-  'market-intelligence': { title: 'Market Intelligence',      icon: '🧠', desc: 'AI-powered location insights' },
-  'supply-demand':       { title: 'Supply & Demand',          icon: '⚖️', desc: 'Browse listings & requests' },
-  'matches':             { title: 'Property Matches',         icon: '🎯', desc: 'Find qualified buyers instantly' },
-  'asset-matcher':       { title: 'Asset Matcher',             icon: '🏆', desc: 'Match your asset across all platforms' },
->>>>>>> origin/main
   'analytics':           { title: 'Analytics & Reports',      icon: '📊', desc: 'Trends, funnels & performance' },
   'heatmap':             { title: 'Market Heat Map',          icon: '🗺️', desc: 'Geographic demand distribution' },
   'whatsapp':            { title: 'WhatsApp Intelligence',    icon: '💬', desc: 'Live WhatsApp message feed' },
   'api-explorer':        { title: 'API Explorer',             icon: '🔌', desc: 'Interactive endpoint tester' },
   'settings':            { title: 'Settings',                 icon: '⚙️', desc: 'Configure preferences & alerts' },
-<<<<<<< HEAD
   'broker-analytics':    { title: 'Broker Analytics',         icon: '👔', desc: 'Broker leaderboard & performance' },
   'crm-pipeline':        { title: 'CRM Pipeline',             icon: '📋', desc: 'Match status workflow & deals' },
   'market-map':          { title: 'Market Intelligence Map',  icon: '🗺️', desc: 'Mapbox heatmap · demand density' },
   'live-scraper':        { title: 'Live Market Scraper',      icon: '🔍', desc: 'Search all Egyptian RE platforms' },
   'nlp-engine':          { title: 'NLP Classification Engine',icon: '🧠', desc: 'Classify & extract RE messages' },
-=======
-  'my-search':           { title: 'My Search',                icon: '🔍', desc: 'Search all supply in the system' },
-  'version-manager':     { title: 'Version Manager',          icon: '🔒', desc: 'Manage feature unlock tiers v1–v10' },
-  'market-map':          { title: 'Market Intelligence Map',   icon: '🗺️', desc: 'Live Mapbox demand heatmap — Cairo' },
-  'nlp-classifier':      { title: 'NLP Classifier',           icon: '🧬', desc: 'Arabic/English message classification engine' },
-  'live-search':         { title: 'Live Scraper',              icon: '🔭', desc: 'Real-time multi-platform property search' },
->>>>>>> origin/main
 }
 
 const REFRESH_INTERVAL_MS = 60_000
@@ -97,28 +62,16 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
   const [nextRefreshIn, setNextRefreshIn] = useState(REFRESH_INTERVAL_MS / 1000)
-<<<<<<< HEAD
   const [notifications, setNotifications] = useState<Array<{ id: number; msg: string; type: 'info' | 'success' | 'warning' }>>([])
   const [showNotifPanel, setShowNotifPanel] = useState(false)
 
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const countdownRef   = useRef<ReturnType<typeof setInterval> | null>(null)
   const socketRef      = useRef<any>(null)
-=======
-  const [notifications, setNotifications] = useState<Array<{ id: number; msg: string; type: 'info' | 'success' | 'warning' }>>([])  
-  const [showInstallBanner, setShowInstallBanner] = useState(false)
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
-  const prevMatchCount = useRef<number>(0)
-  const { alerts, pushEnabled, enablePush, disablePush, pushAlert, dismissAlert } = useNotifications()
-
-  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const countdownRef   = useRef<ReturnType<typeof setInterval> | null>(null)
->>>>>>> origin/main
 
   useEffect(() => {
     fetchMarketData()
     startRefreshCycle()
-<<<<<<< HEAD
     // Connect Socket.IO for real-time match notifications
     import('socket.io-client').then(({ io }) => {
       const socket = io('/', { path: '/socket.io', transports: ['websocket', 'polling'] })
@@ -136,36 +89,6 @@ export default function App() {
       if (countdownRef.current) clearInterval(countdownRef.current)
       socketRef.current?.disconnect()
       window.removeEventListener('matchpro:navigate', onNav)
-=======
-
-    // PWA install prompt capture
-    const handler = (e: Event) => { e.preventDefault(); setDeferredPrompt(e); setShowInstallBanner(true) }
-    window.addEventListener('beforeinstallprompt', handler as any)
-
-    // iOS: show banner if not standalone and not dismissed recently
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream
-    const isStandalone = (window.navigator as any).standalone || window.matchMedia('(display-mode: standalone)').matches
-    const dismissed = localStorage.getItem('matchpro_install_dismissed')
-    if (isIOS && !isStandalone && !dismissed) {
-      setTimeout(() => setShowInstallBanner(true), 3000)
-    }
-
-    // Listen for SW messages (navigate events from notification clicks)
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('message', (e) => {
-        if (e.data?.type === 'NAVIGATE') {
-          const url = new URL(e.data.url, window.location.origin)
-          const page = url.searchParams.get('page') as Page
-          if (page) setCurrentPage(page)
-        }
-      })
-    }
-
-    return () => {
-      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current)
-      if (countdownRef.current) clearInterval(countdownRef.current)
-      window.removeEventListener('beforeinstallprompt', handler as any)
->>>>>>> origin/main
     }
   }, [])
 
@@ -190,29 +113,19 @@ export default function App() {
     setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), 5000)
   }
 
-<<<<<<< HEAD
   const handleNavigate = (page: string) => {
     setCurrentPage(page as Page)
     setShowNotifPanel(false)
   }
 
-=======
->>>>>>> origin/main
   const fetchMarketData = async () => {
     setLoading(true)
     try {
       const controller = new AbortController()
-<<<<<<< HEAD
       const timeout = setTimeout(() => controller.abort(), 2000) // 2s — fail fast if market API offline
       const [summaryRes, intelligenceRes] = await Promise.all([
         fetch('/proxy/api/public/market-summary',    { signal: controller.signal }),
         fetch('/proxy/api/public/market-intelligence', { signal: controller.signal }),
-=======
-      const timeout = setTimeout(() => controller.abort(), 4000)
-      const [summaryRes, intelligenceRes] = await Promise.all([
-        fetch('/api/public/market-summary',    { signal: controller.signal }),
-        fetch('/api/public/market-intelligence', { signal: controller.signal }),
->>>>>>> origin/main
       ])
       clearTimeout(timeout)
       if (!summaryRes.ok || !intelligenceRes.ok) throw new Error('API error')
@@ -221,28 +134,8 @@ export default function App() {
       setApiData({ summary, intelligence, source: 'live' })
       setLastUpdated(new Date())
       pushNotification('Live data refreshed successfully', 'success')
-<<<<<<< HEAD
     } catch {
       setApiData({ ...getMockData(), source: 'mock' })  // market API offline — rich demo data shown
-=======
-      // Check for new matches and fire coin notification
-      const newMatchCount = summary?.total_matches || 0
-      if (prevMatchCount.current > 0 && newMatchCount > prevMatchCount.current) {
-        const diff = newMatchCount - prevMatchCount.current
-        pushAlert({
-          type: 'match',
-          title: `🎯 ${diff} New Match${diff > 1 ? 'es' : ''} Found!`,
-          body: `${diff} new buyer-seller match${diff > 1 ? 'es' : ''} available in your market`,
-          score: 87,
-          location: summary?.top_locations?.[0]?.name || 'Cairo',
-          price: undefined,
-          url: '/?page=matches',
-        })
-      }
-      prevMatchCount.current = newMatchCount
-    } catch {
-      setApiData({ ...getMockData(), source: 'demo' })
->>>>>>> origin/main
       setLastUpdated(new Date())
     } finally {
       setLoading(false)
@@ -267,19 +160,11 @@ export default function App() {
       case 'whatsapp':            return <WhatsApp            {...props} />
       case 'api-explorer':        return <APIExplorer         {...props} />
       case 'settings':            return <Settings            {...props} />
-<<<<<<< HEAD
       case 'broker-analytics':    return <BrokerAnalytics     {...props} />
       case 'crm-pipeline':        return <CRMPipeline         {...props} />
       case 'market-map':          return <MarketMap />
       case 'live-scraper':        return <LiveScraper />
       case 'nlp-engine':          return <NLPEngine />
-=======
-      case 'my-search':           return <MySearch            {...props} />
-      case 'version-manager':     return <VersionManager      {...props} />
-      case 'market-map':          return <MarketMap           {...props} />
-      case 'nlp-classifier':      return <NLPClassifier       {...props} />
-      case 'live-search':         return <LiveSearch          {...props} />
->>>>>>> origin/main
       default:                    return <Dashboard           {...props} />
     }
   }
@@ -312,13 +197,7 @@ export default function App() {
           nextRefreshIn={nextRefreshIn}
           notifications={notifications}
           onDismissNotification={(id: number) => setNotifications(prev => prev.filter(n => n.id !== id))}
-<<<<<<< HEAD
           onNotifBellClick={() => setShowNotifPanel(v => !v)}
-=======
-          pushEnabled={pushEnabled}
-          onTogglePush={pushEnabled ? disablePush : enablePush}
-          alertCount={alerts.length}
->>>>>>> origin/main
         />
 
         <div style={{ flex: 1, padding: '24px', overflowX: 'hidden' }}>
@@ -326,7 +205,6 @@ export default function App() {
         </div>
       </main>
 
-<<<<<<< HEAD
       {/* Rich match toast + coin rain */}
       <ToastContainer onNavigate={handleNavigate} />
 
@@ -355,79 +233,18 @@ export default function App() {
             color: n.type === 'success' ? 'var(--brand-green)' : n.type === 'warning' ? 'var(--brand-gold)' : 'var(--brand-teal)',
             fontSize: '0.8rem', fontWeight: 500, backdropFilter: 'blur(8px)',
             boxShadow: 'var(--shadow-md)', maxWidth: 300, pointerEvents: 'auto',
-=======
-      {/* Toast notifications */}
-      <div style={{
-        position: 'fixed',
-        bottom: 24,
-        right: 24,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-        zIndex: 9999,
-        pointerEvents: 'none',
-      }}>
-        {notifications.map(n => (
-          <div key={n.id} className="fade-in" style={{
-            padding: '10px 16px',
-            borderRadius: '10px',
-            background: n.type === 'success' ? 'rgba(16,185,129,0.15)' : n.type === 'warning' ? 'rgba(245,158,11,0.15)' : 'rgba(14,165,233,0.15)',
-            border: `1px solid ${n.type === 'success' ? 'rgba(16,185,129,0.4)' : n.type === 'warning' ? 'rgba(245,158,11,0.4)' : 'rgba(14,165,233,0.4)'}`,
-            color: n.type === 'success' ? 'var(--brand-green)' : n.type === 'warning' ? 'var(--brand-gold)' : 'var(--brand-teal)',
-            fontSize: '0.8rem',
-            fontWeight: 500,
-            backdropFilter: 'blur(8px)',
-            boxShadow: 'var(--shadow-md)',
-            maxWidth: 300,
-            pointerEvents: 'auto',
->>>>>>> origin/main
           }}>
             {n.type === 'success' ? '✓' : n.type === 'warning' ? '⚠' : 'ℹ'} {n.msg}
           </div>
         ))}
       </div>
-<<<<<<< HEAD
-=======
-
-      {/* MatchPro Notification Engine — coin drops + PWA install + push alerts */}
-      <MatchNotifications
-        alerts={alerts}
-        pushEnabled={pushEnabled}
-        enablePush={enablePush}
-        disablePush={disablePush}
-        dismissAlert={dismissAlert}
-        onNavigate={(page) => setCurrentPage(page as Page)}
-        showInstallBanner={showInstallBanner}
-        onInstall={async () => {
-          if (deferredPrompt) {
-            deferredPrompt.prompt()
-            const choice = await deferredPrompt.userChoice
-            if (choice.outcome === 'accepted') {
-              pushAlert({ type: 'match', title: '✅ MatchPro Installed!', body: 'App added to home screen. Coin notifications enabled 🪙' })
-            }
-          }
-          setShowInstallBanner(false)
-          setDeferredPrompt(null)
-        }}
-        onDismissInstall={() => {
-          setShowInstallBanner(false)
-          localStorage.setItem('matchpro_install_dismissed', Date.now().toString())
-        }}
-      />
->>>>>>> origin/main
     </div>
   )
 }
 
 /* ─── TopBar ──────────────────────────────────────────────── */
-<<<<<<< HEAD
 function TopBar({ currentPage, loading, onRefresh, lastUpdated, onMenuToggle, apiData, nextRefreshIn, onNotifBellClick }: any) {
   const meta = PAGE_META[currentPage as Page]
-=======
-function TopBar({ currentPage, loading, onRefresh, lastUpdated, onMenuToggle, apiData, nextRefreshIn, notifications, onDismissNotification, pushEnabled, onTogglePush, alertCount }: any) {
-  const meta = PAGE_META[currentPage as Page]
-  const [showNotifPanel, setShowNotifPanel] = useState(false)
->>>>>>> origin/main
   const isLive = apiData?.source === 'live'
 
   return (
@@ -499,98 +316,11 @@ function TopBar({ currentPage, loading, onRefresh, lastUpdated, onMenuToggle, ap
           letterSpacing: '0.04em',
         }}>
           <LiveDot active={!loading} color={isLive ? '#10b981' : '#f59e0b'} />
-<<<<<<< HEAD
           {isLive ? 'LIVE DATA' : 'OFFLINE — Demo Data'}
         </div>
 
         {/* Notifications bell — powered by NotificationSystem */}
         <NotificationBell onClick={onNotifBellClick} />
-=======
-          {isLive ? 'LIVE DATA' : 'DEMO DATA'}
-        </div>
-
-        {/* Push Notification Bell */}
-        <NotificationBell
-          count={alertCount || 0}
-          pushEnabled={!!pushEnabled}
-          onClick={() => {
-            if (!pushEnabled) onTogglePush()
-            else setShowNotifPanel(!showNotifPanel)
-          }}
-        />
-
-        {/* Activity Log */}
-        <div style={{ position: 'relative' }}>
-          <button
-            onClick={() => setShowNotifPanel(!showNotifPanel)}
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: notifications.length > 0 ? 'rgba(14,165,233,0.1)' : 'rgba(255,255,255,0.04)',
-              border: `1px solid ${notifications.length > 0 ? 'rgba(14,165,233,0.3)' : 'var(--border)'}`,
-              color: notifications.length > 0 ? 'var(--brand-teal)' : 'var(--text-secondary)',
-              fontSize: '1rem',
-              position: 'relative',
-              transition: 'all 0.15s',
-            }}
-          >
-            🔔
-            {notifications.length > 0 && (
-              <div style={{
-                position: 'absolute',
-                top: 4, right: 4,
-                width: 8, height: 8,
-                borderRadius: '50%',
-                background: 'var(--brand-red)',
-                border: '1.5px solid var(--bg-secondary)',
-              }} />
-            )}
-          </button>
-
-          {showNotifPanel && (
-            <div className="fade-in" style={{
-              position: 'absolute',
-              top: '44px',
-              right: 0,
-              width: 300,
-              background: 'var(--bg-elevated)',
-              border: '1px solid var(--border)',
-              borderRadius: '10px',
-              boxShadow: 'var(--shadow-lg)',
-              zIndex: 200,
-              overflow: 'hidden',
-            }}>
-              <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
-                Recent Activity
-              </div>
-              {notifications.length === 0 ? (
-                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                  No notifications
-                </div>
-              ) : (
-                notifications.map((n: { id: number; msg: string; type: string }) => (
-                  <div key={n.id} style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '10px 14px',
-                    borderBottom: '1px solid rgba(30,48,80,0.5)',
-                    fontSize: '0.8rem',
-                    color: 'var(--text-secondary)',
-                  }}>
-                    <span>{n.type === 'success' ? '✓ ' : 'ℹ '}{n.msg}</span>
-                    <button onClick={() => onDismissNotification(n.id)} style={{ color: 'var(--text-muted)', fontSize: '0.9rem', padding: '0 4px' }}>×</button>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
->>>>>>> origin/main
 
         {/* Refresh button */}
         <button
@@ -631,7 +361,6 @@ function LiveDot({ active, color }: { active: boolean; color: string }) {
 
 /* ─── Mock data ──────────────────────────────────────────── */
 export function getMockData() {
-<<<<<<< HEAD
   const mkMarket = (location: string, supply: number, demand: number, avgPrice: number, priceTrend: string) => {
     const pi   = parseFloat((demand / supply).toFixed(2))
     const temp = pi >= 3.5 ? 'hot' : pi >= 2 ? 'warm' : pi >= 1.2 ? 'cool' : 'cold'
@@ -695,46 +424,12 @@ export function getMockData() {
         { range: '6-8M',  count: 860  },
         { range: '8-10M', count: 540  },
         { range: '> 10M', count: 264  },
-=======
-  return {
-    summary: {
-      total_supply:  4224,
-      total_demand:  7626,
-      total_matches: 56566,
-      top_locations: [
-        { name: 'Madinaty',          demand: 1931, supply:  478, pressure: '4.04' },
-        { name: 'Fifth Settlement',  demand: 1245, supply:  380, pressure: '3.28' },
-        { name: 'New Capital',       demand:  890, supply:  210, pressure: '4.24' },
-        { name: 'Sheikh Zayed',      demand:  650, supply:  320, pressure: '2.03' },
-        { name: 'Rehab City',        demand:  780, supply:  298, pressure: '2.62' },
-        { name: 'Nasr City',         demand:  520, supply:  410, pressure: '1.27' },
-        { name: 'Heliopolis',        demand:  430, supply:  390, pressure: '1.10' },
-        { name: 'Zamalek',           demand:  280, supply:  180, pressure: '1.56' },
-        { name: 'Maadi',             demand:  340, supply:  225, pressure: '1.51' },
-        { name: 'North Coast',       demand:  560, supply:  333, pressure: '1.68' },
->>>>>>> origin/main
       ],
     },
     intelligence: {
       version: '10.0.0',
-<<<<<<< HEAD
       summary: { total_supply: 4508, total_demand: 7640 },
       markets,
-=======
-      summary: { total_supply: 4224, total_demand: 7626 },
-      markets: [
-        { location: 'Madinaty',         pressure_index: 4.04, market_signal: 'seller',   demand: 1931, supply:  478, avg_price: 4800000, price_trend: '+12%', hot_types: ['apartment','villa'] },
-        { location: 'Fifth Settlement', pressure_index: 3.28, market_signal: 'seller',   demand: 1245, supply:  380, avg_price: 5500000, price_trend: '+8%',  hot_types: ['villa','townhouse'] },
-        { location: 'New Capital',      pressure_index: 4.24, market_signal: 'seller',   demand:  890, supply:  210, avg_price: 3200000, price_trend: '+18%', hot_types: ['apartment','studio'] },
-        { location: 'Sheikh Zayed',     pressure_index: 2.03, market_signal: 'balanced', demand:  650, supply:  320, avg_price: 6200000, price_trend: '+4%',  hot_types: ['villa','apartment'] },
-        { location: 'Rehab City',       pressure_index: 2.62, market_signal: 'seller',   demand:  780, supply:  298, avg_price: 3800000, price_trend: '+7%',  hot_types: ['apartment','duplex'] },
-        { location: 'Nasr City',        pressure_index: 1.27, market_signal: 'buyer',    demand:  520, supply:  410, avg_price: 2800000, price_trend: '+2%',  hot_types: ['apartment','studio'] },
-        { location: 'Heliopolis',       pressure_index: 1.10, market_signal: 'buyer',    demand:  430, supply:  390, avg_price: 3500000, price_trend: '+1%',  hot_types: ['apartment','duplex'] },
-        { location: 'Zamalek',          pressure_index: 1.56, market_signal: 'balanced', demand:  280, supply:  180, avg_price: 8500000, price_trend: '+5%',  hot_types: ['apartment','penthouse'] },
-        { location: 'Maadi',            pressure_index: 1.51, market_signal: 'balanced', demand:  340, supply:  225, avg_price: 4200000, price_trend: '+3%',  hot_types: ['villa','apartment'] },
-        { location: 'North Coast',      pressure_index: 1.68, market_signal: 'balanced', demand:  560, supply:  333, avg_price: 7500000, price_trend: '+9%',  hot_types: ['chalet','villa'] },
-      ],
->>>>>>> origin/main
     },
   }
 }

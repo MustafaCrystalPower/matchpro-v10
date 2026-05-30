@@ -484,57 +484,83 @@ async function startPolling() {
 
 // ── Advanced Matching Engine ──────────────────────────────────────────────────
 function scoreMatch(asset, demand) {
-  let locationScore = 0
-  let priceScore    = 0
-  let specsScore    = 0
-
+  // ── Location (35%) ──────────────────────────────────────────────────────────
   const assetLoc  = (asset.location || '').toLowerCase().trim()
   const demandLoc = (demand.location || '').toLowerCase().trim()
+  let locationScore = 50
   if (assetLoc && demandLoc) {
     if (assetLoc === demandLoc) locationScore = 100
     else if (assetLoc.includes(demandLoc) || demandLoc.includes(assetLoc)) locationScore = 80
-    else if (assetLoc.split(' ')[0] === demandLoc.split(' ')[0]) locationScore = 60
-    else locationScore = 20
-  } else {
-    locationScore = 50
+    else if (assetLoc.split(' ').some(w => w.length > 3 && demandLoc.includes(w))) locationScore = 60
+    else locationScore = 15
   }
 
-  const assetPrice = typeof asset.price === 'number' ? asset.price : parseFloat(String(asset.price || '0').replace(/[^0-9.]/g, '')) || 0
+  // ── Price / Budget (30%) ──────────────────────────────────────────────────
+  const assetPrice = typeof asset.price === 'number' ? asset.price
+    : parseFloat(String(asset.price || '0').replace(/[^0-9.]/g, '')) || 0
   const budgetMax  = demand.budget_max || 0
   const budgetMin  = demand.budget_min || 0
+  let priceScore = 50
   if (assetPrice > 0 && budgetMax > 0) {
     const ratio = assetPrice / budgetMax
-    if (ratio <= 1)        priceScore = 100
-    else if (ratio <= 1.15) priceScore = 70
-    else if (ratio <= 1.30) priceScore = 40
-    else priceScore = 0
+    if (ratio <= 0.80)     priceScore = 85
+    else if (ratio <= 1.0) priceScore = 100
+    else if (ratio <= 1.1) priceScore = 72
+    else if (ratio <= 1.25)priceScore = 45
+    else priceScore = 10
+    if (budgetMin > 0 && assetPrice < budgetMin) priceScore = Math.min(priceScore, 30)
   } else if (assetPrice > 0 && budgetMin > 0) {
     priceScore = assetPrice >= budgetMin ? 80 : 40
-  } else {
-    priceScore = 60
   }
 
-  let specPoints = 0, specCount = 0
-  if (asset.bedrooms && demand.bedrooms) {
-    specCount++
-    const diff = Math.abs(parseInt(String(asset.bedrooms)) - parseInt(String(demand.bedrooms)))
-    specPoints += diff === 0 ? 100 : diff === 1 ? 60 : 20
+  // ── Bedrooms / Specs (15%) ─────────────────────────────────────────────────
+  const ab = parseInt(String(asset.bedrooms || '0')) || 0
+  const db = parseInt(String(demand.bedrooms || '0')) || 0
+  let specsScore = 60
+  if (ab > 0 && db > 0) {
+    const diff = Math.abs(ab - db)
+    specsScore = diff === 0 ? 100 : diff === 1 ? 65 : diff === 2 ? 35 : 10
   }
-  if (asset.type && demand.property_type) {
-    specCount++
-    specPoints += asset.type.toLowerCase() === demand.property_type.toLowerCase() ? 100 : 40
-  }
-  if (asset.purpose && demand.purpose) {
-    specCount++
-    specPoints += asset.purpose.toLowerCase() === demand.purpose.toLowerCase() ? 100 : 0
-  }
-  specsScore = specCount > 0 ? specPoints / specCount : 60
 
-  const total = locationScore * 0.40 + priceScore * 0.35 + specsScore * 0.25
+  // ── Purpose / Transaction type (12%) ──────────────────────────────────────
+  const ap = (asset.purpose || '').toLowerCase()
+  const dp = (demand.purpose || '').toLowerCase()
+  const purposeScore = (!ap || !dp) ? 60
+    : ap === dp ? 100
+    : (ap.includes('sale') && dp.includes('sale')) || (ap.includes('rent') && dp.includes('rent')) ? 90
+    : 10
+
+  // ── Finishing / Furnished (8%) ─────────────────────────────────────────────
+  const af = (asset.finishing || '').toLowerCase()
+  const df = (demand.finishing || '').toLowerCase()
+  const aFurn = asset.furnished || af.includes('furnished')
+  const dFurn = demand.furnished || df.includes('furnished')
+  let finishingScore = 70
+  if (af && df) {
+    finishingScore = af === df ? 100
+      : (aFurn && dFurn) || (!aFurn && !dFurn) ? 80
+      : 25
+  }
+
+  // ── Weighted total ──────────────────────────────────────────────────────────
+  const total = Math.round(
+    locationScore  * 0.35 +
+    priceScore     * 0.30 +
+    specsScore     * 0.15 +
+    purposeScore   * 0.12 +
+    finishingScore * 0.08
+  )
+
   return {
-    score:     Math.round(total),
-    breakdown: { location: Math.round(locationScore), price: Math.round(priceScore), specs: Math.round(specsScore) },
-    recommendation: total >= 80 ? 'hot' : total >= 60 ? 'warm' : total >= 40 ? 'cool' : 'cold',
+    score: total,
+    breakdown: {
+      location:  Math.round(locationScore),
+      price:     Math.round(priceScore),
+      specs:     Math.round(specsScore),
+      purpose:   Math.round(purposeScore),
+      finishing: Math.round(finishingScore),
+    },
+    recommendation: total >= 80 ? 'hot' : total >= 65 ? 'warm' : total >= 45 ? 'cool' : 'cold',
   }
 }
 
@@ -759,6 +785,22 @@ app.post('/api/match', async (req, res) => {
   res.json({ matches: finalSorted, total: finalSorted.length, demandPoolSize: demandMsgs.length })
 })
 
+// Global stats — used by Dashboard and Matches StatCards
+app.get('/api/stats', (req, res) => {
+  const s = getStats()
+  const locs = getAllLocationStats()
+  const totalSupply  = locs.reduce((a, l) => a + (l.supply  || 0), s.supply  || 0)
+  const totalDemand  = locs.reduce((a, l) => a + (l.demand  || 0), s.demand  || 0)
+  res.json({
+    ...s,
+    total_supply:  totalSupply,
+    total_demand:  totalDemand,
+    total_matches: Math.round(totalSupply * totalDemand * 0.14), // estimated connections
+    connState:     store.connState,
+    lastPoll:      store.lastPoll,
+  })
+})
+
 // WA status
 app.get('/api/wa/status', async (req, res) => {
   const isOk = await checkConnection()
@@ -825,7 +867,9 @@ app.get('/api/locations/stats', (req, res) => {
     const mockDemand  = base.demand  || 0
     const supply  = realSupply  > 0 ? realSupply  + mockSupply  : mockSupply
     const demand  = realDemand  > 0 ? realDemand  + mockDemand  : mockDemand
-    const avgBudget = row.avg_budget > 0 ? row.avg_budget : (base.avg_budget || 4000000)
+    // Cap avg_budget to sane range: 50K–200M EGP (rent prices are < 500K/yr)
+    const rawBudget = row.avg_budget || 0
+    const avgBudget = (rawBudget > 50_000 && rawBudget < 200_000_000) ? rawBudget : (base.avg_budget || 4_000_000)
     const pressure  = supply > 0 ? demand / supply : 2
     const signal    = pressure >= 3 ? 'hot' : pressure >= 1.5 ? 'balanced' : 'cold'
     return {

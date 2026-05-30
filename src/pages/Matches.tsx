@@ -1,523 +1,811 @@
-<<<<<<< HEAD
 /**
- * Property Matches — Real matching engine
- * =========================================
- * • Tries /api/match (WA demand pool) first — real GPT scoring
- * • Falls back to /proxy/api/public/match (market API)
- * • Falls back to local scoring algorithm (location 40%, price 35%, specs 25%)
- * • CRM pipeline integration — save matches to pipeline
- * • Match feedback rating system
- * • CSV export with Crystal Power branding
+ * MatchPro™ — Property Matches
+ * ==============================
+ * • Three modes: SELL (find buyers), BUY/RENT (find supply), INVESTMENT (find ROI deals)
+ * • Real GPT-scored WA demand/supply pool
+ * • Branded Excel (.xlsx) export — Crystal Power Investment template
+ * • CRM pipeline integration
+ * • Match feedback system
+ * • Full supply ↔ demand cross-matching
  */
-=======
->>>>>>> origin/main
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import Card from '../components/Card'
-import Badge from '../components/Badge'
 import StatCard from '../components/StatCard'
 
 interface Props { apiData: any; loading: boolean; refreshData: () => void; lastUpdated: Date }
 
+/* ── Types ─────────────────────────────────────────────────── */
+type MatchMode = 'sell' | 'buy' | 'invest'
+
 interface AssetInput {
-<<<<<<< HEAD
-  location: string; type: string; purpose: string; price: string; bedrooms: string
+  mode:          MatchMode
+  location:      string
+  type:          string
+  purpose:       string
+  price:         string
+  bedrooms:      string
+  area_sqm:      string
+  finishing:     string
+  furnished:     string
+  notes:         string
 }
 
-interface MatchedBuyer {
-  id: string
-  sender?: string
-  phone?: string
-  message?: string
-  timestamp?: number
-  extracted?: any
-  score: number
-  breakdown?: { location?: number; price?: number; specs?: number; [key: string]: number | undefined }
-  notes?: string
-  recommendation: 'hot' | 'warm' | 'cool' | 'cold'
-  gptScored?: boolean
-  // Market API shape
-  buyer_name?: string
-  buyer_phone?: string
-  location?: string
-  budget?: number
-  bedrooms?: number
-  area?: number
-  notes_raw?: string
-}
-
-const RECO_META: Record<string, { color: string; bg: string; icon: string }> = {
-  hot:  { color: '#ef4444', bg: 'rgba(239,68,68,0.12)',  icon: '🔥' },
-  warm: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', icon: '🌡️' },
-  cool: { color: '#0ea5e9', bg: 'rgba(14,165,233,0.12)', icon: '❄️' },
-  cold: { color: '#6366f1', bg: 'rgba(99,102,241,0.12)', icon: '🧊' },
-=======
-  location: string
-  type:     string
-  purpose:  string
-  price:    string
-  bedrooms: string
+interface ScoreBreakdown {
+  location:  number
+  price:     number
+  specs:     number
+  purpose:   number
+  finishing: number
+  [key: string]: number
 }
 
 interface MatchResult {
-  matches_found:   number
-  top_match_score: number
-  location:        string
-  match_details?:  any[]
-  message?:        string
-  avg_match_score?: number
->>>>>>> origin/main
+  id:             string
+  // identity
+  name:           string
+  phone:          string
+  message:        string
+  timestamp?:     number
+  // match quality
+  score:          number
+  breakdown:      ScoreBreakdown
+  recommendation: 'hot' | 'warm' | 'cool' | 'cold'
+  notes:          string
+  gptScored:      boolean
+  // extracted asset info
+  extracted:      Record<string, any>
+  // source
+  source:         'wa' | 'mock'
 }
 
-const AVATAR_COLORS = ['#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899']
-
-<<<<<<< HEAD
-// Local matching algorithm (location 40%, price 35%, specs 25%)
-function localScore(asset: AssetInput, demand: any): number {
-  let loc = 50, price = 60, specs = 60
-  if (asset.location && demand.location) {
-    const a = asset.location.toLowerCase(), d = demand.location.toLowerCase()
-    loc = a === d ? 100 : (a.includes(d) || d.includes(a)) ? 80 : 25
-  }
-  const assetP = parseInt(asset.price) || 0
-  const budMax = demand.budget_max || demand.budget || 0
-  if (assetP > 0 && budMax > 0) {
-    const r = assetP / budMax
-    price = r <= 1 ? 100 : r <= 1.15 ? 70 : r <= 1.3 ? 40 : 5
-  }
-  let sp = 0, sc = 0
-  const ab = parseInt(asset.bedrooms) || 0, db = demand.bedrooms || 0
-  if (ab && db) { sc++; sp += Math.abs(ab - db) === 0 ? 100 : Math.abs(ab - db) === 1 ? 60 : 20 }
-  if (asset.type && demand.property_type) { sc++; sp += asset.type === demand.property_type ? 100 : 40 }
-  if (asset.purpose && demand.purpose) { sc++; sp += asset.purpose === demand.purpose ? 100 : 0 }
-  if (sc > 0) specs = sp / sc
-
-  return Math.round(loc * 0.40 + price * 0.35 + specs * 0.25)
+interface RunResult {
+  matches:      MatchResult[]
+  source:       'wa' | 'mock'
+  demandPool:   number
+  supplyPool:   number
+  searchedAt:   Date
+  assetSnap:    AssetInput
 }
 
-// Generate mock matches from market data
-function generateMockMatches(asset: AssetInput, topLocations: any[]): MatchedBuyer[] {
-  const names   = ['Ahmed Hassan','Sara Mohamed','Khaled Ali','Fatima Ibrahim','Omar Sayed','Nour Khalid','Hassan Ali','Amal Fathy','Karim Nasser','Dina Sherif']
-  const price   = parseInt(asset.price) || 5000000
-  const beds    = parseInt(asset.bedrooms) || 3
-  return Array.from({ length: 12 }, (_, i) => {
-    const score = Math.max(20, Math.round(92 - i * 4.5 + (Math.random() - 0.5) * 8))
-    const reco  = score >= 80 ? 'hot' : score >= 65 ? 'warm' : score >= 45 ? 'cool' : 'cold'
+/* ── Constants ──────────────────────────────────────────────── */
+const RECO: Record<string, { color: string; bg: string; border: string; icon: string; label: string }> = {
+  hot:  { color: '#ef4444', bg: 'rgba(239,68,68,0.10)',  border: 'rgba(239,68,68,0.30)',  icon: '🔥', label: 'HOT' },
+  warm: { color: '#f59e0b', bg: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.30)', icon: '⚡', label: 'WARM' },
+  cool: { color: '#0ea5e9', bg: 'rgba(14,165,233,0.10)', border: 'rgba(14,165,233,0.30)', icon: '💧', label: 'COOL' },
+  cold: { color: '#6366f1', bg: 'rgba(99,102,241,0.10)', border: 'rgba(99,102,241,0.30)', icon: '❄️', label: 'COLD' },
+}
+
+const LOCATIONS = [
+  'Madinaty','New Cairo','Nasr City','Heliopolis','Rehab City','6th October',
+  'Sheikh Zayed','Zamalek','Mohandessin','Dokki','Giza','Obour City',
+  'Future City','Mostakbal City','North Coast','El Gouna','Ain Sokhna',
+  'Alexandria','Badya','Palm Hills','Zayed','Hyde Park','Mountain View',
+]
+
+const PROPERTY_TYPES = ['apartment','villa','studio','townhouse','duplex','penthouse','chalet','land','office','shop']
+const FINISHING = ['finished','semi-finished','unfinished','fully-furnished','furnished','unfurnished','super-lux','core-shell']
+
+/* ── Local scoring (fallback when no WA data) ───────────────── */
+function scoreMatch(asset: AssetInput, candidate: any): ScoreBreakdown & { total: number } {
+  // Location
+  const al = (asset.location || '').toLowerCase()
+  const cl = (candidate.location || candidate.extracted?.location || '').toLowerCase()
+  let loc = 0
+  if (al && cl) {
+    if (al === cl) loc = 100
+    else if (al.includes(cl) || cl.includes(al)) loc = 75
+    else if (al.split(' ').some((w: string) => w.length > 3 && cl.includes(w))) loc = 50
+    else loc = 10
+  } else loc = 50
+
+  // Price
+  const ap = parseInt(asset.price) || 0
+  const bmax = candidate.extracted?.budget_max || candidate.budget || 0
+  const bmin = candidate.extracted?.budget_min || 0
+  let price = 50
+  if (ap > 0 && bmax > 0) {
+    const r = ap / bmax
+    if (r <= 0.8)  price = 80
+    else if (r <= 1.0) price = 100
+    else if (r <= 1.1) price = 75
+    else if (r <= 1.25) price = 45
+    else price = 10
+    if (bmin > 0 && ap < bmin) price = Math.min(price, 30)
+  }
+
+  // Specs (bedrooms)
+  const ab = parseInt(asset.bedrooms) || 0
+  const cb = candidate.extracted?.bedrooms || 0
+  let specs = 60
+  if (ab > 0 && cb > 0) {
+    const diff = Math.abs(ab - cb)
+    specs = diff === 0 ? 100 : diff === 1 ? 65 : diff === 2 ? 35 : 10
+  }
+
+  // Purpose
+  const ap2 = (asset.purpose || '').toLowerCase()
+  const cp  = (candidate.extracted?.purpose || '').toLowerCase()
+  let purpose = 50
+  if (ap2 && cp) purpose = ap2 === cp ? 100 : 20
+
+  // Finishing
+  const af = (asset.finishing || '').toLowerCase()
+  const cf = (candidate.extracted?.finishing || '').toLowerCase()
+  let finishing = 70
+  if (af && cf) {
+    const furnished_match = (af.includes('furnish') && cf.includes('furnish')) || (!af.includes('furnish') && !cf.includes('furnish'))
+    finishing = furnished_match ? 90 : 30
+  }
+
+  const total = Math.round(loc * 0.35 + price * 0.30 + specs * 0.15 + purpose * 0.12 + finishing * 0.08)
+  return { location: Math.round(loc), price: Math.round(price), specs: Math.round(specs), purpose: Math.round(purpose), finishing: Math.round(finishing), total }
+}
+
+function recoFromScore(s: number): 'hot' | 'warm' | 'cool' | 'cold' {
+  return s >= 80 ? 'hot' : s >= 65 ? 'warm' : s >= 45 ? 'cool' : 'cold'
+}
+
+/* ── Mock data generator ─────────────────────────────────────── */
+const MOCK_NAMES = ['Ahmed Hassan','Sara Mohamed','Khaled Ali','Fatima Ibrahim','Omar Sayed',
+  'Nour Khalid','Hassan Ali','Amal Fathy','Karim Nasser','Dina Sherif',
+  'Amr Gamal','Hana Moustafa','Tarek Fawzy','Layla Adel','Ramy Samir']
+
+function buildMockMatches(asset: AssetInput): MatchResult[] {
+  const price  = parseInt(asset.price) || 5_000_000
+  const beds   = parseInt(asset.bedrooms) || 2
+  return Array.from({ length: 14 }, (_, i) => {
+    const variance = (Math.random() - 0.5) * 0.2
+    const budget   = Math.round(price * (0.82 + i * 0.025 + variance))
+    const bd       = scoreMatch(asset, { location: asset.location, budget, extracted: { bedrooms: beds + (i % 3 - 1), budget_max: budget, purpose: asset.purpose, location: asset.location } })
+    const score    = Math.min(98, Math.max(18, bd.total + Math.round((Math.random() - 0.5) * 10)))
+    const reco     = recoFromScore(score)
     return {
-      id:             `mock_${i}`,
-      buyer_name:     names[i % names.length],
-      buyer_phone:    `+2010${Math.floor(10000000 + Math.random() * 89999999)}`,
+      id:             `mock_${i}_${Date.now()}`,
+      name:           MOCK_NAMES[i % MOCK_NAMES.length],
+      phone:          `+2010${Math.floor(10_000_000 + Math.random() * 89_999_999)}`,
+      message:        `Seeking ${beds + (i % 3 - 1)}BR ${asset.type} in ${asset.location} — budget ${(budget / 1_000_000).toFixed(1)}M EGP`,
       score,
-      recommendation: reco as any,
-      location:       asset.location,
-      budget:         price * (0.85 + i * 0.03),
-      bedrooms:       beds + (i % 3 === 2 ? 1 : 0),
-      notes:          `${reco.toUpperCase()} match — Budget ${Math.round((price * (0.85 + i * 0.03)) / 1000)}K EGP · ${beds}BR ${asset.type}`,
+      breakdown:      { location: bd.location, price: bd.price, specs: bd.specs, purpose: bd.purpose, finishing: bd.finishing },
+      recommendation: reco,
+      notes:          `${reco.toUpperCase()} • Budget ${(budget / 1_000).toFixed(0)}K EGP • ${beds + (i % 3 - 1)}BR ${asset.type}`,
       gptScored:      false,
-      breakdown: {
-        location: 85 + (Math.random() - 0.5) * 30,
-        price:    80 + (Math.random() - 0.5) * 40,
-        specs:    75 + (Math.random() - 0.5) * 40,
-      },
+      extracted:      { bedrooms: beds + (i % 3 - 1), budget_max: budget, location: asset.location, purpose: asset.purpose },
+      source:         'mock',
     }
   }).sort((a, b) => b.score - a.score)
 }
 
+/* ── Excel export ──────────────────────────────────────────── */
+function exportExcel(result: RunResult) {
+  const { matches, assetSnap, searchedAt } = result
+  const purposeLabel = assetSnap.purpose === 'sale' ? 'For Sale' : 'For Rent'
+  const assetDesc    = `${assetSnap.bedrooms}BR ${assetSnap.type} — ${assetSnap.location} (${purposeLabel})`
+  const priceF       = parseInt(assetSnap.price).toLocaleString() + ' EGP'
+  const dateF        = searchedAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  const timeF        = searchedAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+
+  // Build styled HTML table that Excel can open
+  const hotCount  = matches.filter(m => m.recommendation === 'hot').length
+  const warmCount = matches.filter(m => m.recommendation === 'warm').length
+
+  const rowColor = (r: string) =>
+    r === 'hot' ? '#FFF3F3' : r === 'warm' ? '#FFFBF0' : r === 'cool' ? '#F0F8FF' : '#F8F8FF'
+
+  const recoColor = (r: string) =>
+    r === 'hot' ? '#DC2626' : r === 'warm' ? '#D97706' : r === 'cool' ? '#0284C7' : '#4338CA'
+
+  const rows = matches.map((m, i) => `
+    <tr style="background:${rowColor(m.recommendation)}">
+      <td style="text-align:center;font-weight:700;color:#374151">${i + 1}</td>
+      <td style="font-weight:600;color:#111827">${m.name}</td>
+      <td style="color:#1F2937;font-family:Courier New">${m.phone}</td>
+      <td style="text-align:center;font-weight:800;font-size:15px;color:${recoColor(m.recommendation)}">${m.score}%</td>
+      <td style="text-align:center;font-weight:700;color:${recoColor(m.recommendation)}">${RECO[m.recommendation]?.icon} ${RECO[m.recommendation]?.label}</td>
+      <td style="text-align:right;color:#1F2937">${m.extracted?.budget_max ? Math.round(m.extracted.budget_max).toLocaleString() : '—'}</td>
+      <td style="text-align:center">${m.extracted?.bedrooms || m.breakdown?.specs ? (m.extracted?.bedrooms || '—') : '—'}</td>
+      <td style="text-align:center">${m.breakdown?.location ?? '—'}%</td>
+      <td style="text-align:center">${m.breakdown?.price ?? '—'}%</td>
+      <td style="text-align:center">${m.breakdown?.specs ?? '—'}%</td>
+      <td style="color:#374151;font-size:11px">${(m.notes || '').replace(/</g, '&lt;').substring(0, 100)}</td>
+      <td style="text-align:center;color:#374151">${m.gptScored ? '✅ GPT' : '⚡ Auto'}</td>
+    </tr>`).join('')
+
+  const html = `
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:x="urn:schemas-microsoft-com:office:excel"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="UTF-8">
+<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets>
+<x:ExcelWorksheet><x:Name>Match Report</x:Name><x:WorksheetOptions>
+<x:Print><x:ValidPrinterInfo/></x:Print></x:WorksheetOptions>
+</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+<style>
+  body { font-family: Calibri, Arial, sans-serif; font-size: 12px; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { border: 1px solid #D1D5DB; padding: 7px 10px; }
+  .header-brand { background: #0F172A; color: #F8FAFC; font-size: 20px; font-weight: 900; letter-spacing: 1px; padding: 14px 16px; }
+  .header-sub   { background: #1E3A5F; color: #BAE6FD; font-size: 12px; padding: 6px 16px; }
+  .section-title{ background: #0EA5E9; color: #FFFFFF; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .meta-label   { background: #F1F5F9; color: #64748B; font-weight: 600; font-size: 11px; }
+  .meta-value   { background: #FFFFFF; color: #0F172A; font-weight: 700; }
+  .col-header   { background: #0F172A; color: #F8FAFC; font-weight: 700; font-size: 11px; text-align: center; padding: 8px; }
+  .summary-hot  { background: #FEE2E2; color: #DC2626; font-weight: 800; font-size: 16px; text-align: center; }
+  .summary-warm { background: #FEF3C7; color: #D97706; font-weight: 800; font-size: 16px; text-align: center; }
+  .summary-total{ background: #EFF6FF; color: #1D4ED8; font-weight: 800; font-size: 16px; text-align: center; }
+</style>
+</head>
+<body>
+<table>
+  <!-- Brand Header -->
+  <tr><td colspan="12" class="header-brand">
+    💎 CRYSTAL POWER INVESTMENT &nbsp;|&nbsp; MatchPro™ Intelligence System
+  </td></tr>
+  <tr><td colspan="12" class="header-sub">
+    Property Match Report &nbsp;·&nbsp; Generated: ${dateF} at ${timeF} &nbsp;·&nbsp; Source: ${result.source === 'wa' ? 'WhatsApp Live Pool' : 'Illustrative Demo Data'}
+  </td></tr>
+
+  <!-- Empty row -->
+  <tr><td colspan="12" style="border:none;height:6px"></td></tr>
+
+  <!-- Asset Info -->
+  <tr>
+    <td colspan="2" class="section-title">📋 ASSET DETAILS</td>
+    <td colspan="4" class="section-title">📊 MATCH SUMMARY</td>
+    <td colspan="6" class="section-title">🎯 SCORING WEIGHTS</td>
+  </tr>
+  <tr>
+    <td class="meta-label">Property</td>
+    <td class="meta-value" colspan="1">${assetDesc}</td>
+    <td class="meta-label">Total Matches</td>
+    <td class="summary-total">${matches.length}</td>
+    <td class="meta-label">Location</td>
+    <td class="meta-value">35%</td>
+    <td class="meta-label">Price / Budget</td>
+    <td class="meta-value" colspan="5">30%</td>
+  </tr>
+  <tr>
+    <td class="meta-label">Asking Price</td>
+    <td class="meta-value">${priceF}</td>
+    <td class="meta-label">🔥 Hot Matches</td>
+    <td class="summary-hot">${hotCount}</td>
+    <td class="meta-label">Bedrooms / Specs</td>
+    <td class="meta-value">15%</td>
+    <td class="meta-label">Purpose</td>
+    <td class="meta-value" colspan="5">12%</td>
+  </tr>
+  <tr>
+    <td class="meta-label">Location</td>
+    <td class="meta-value">${assetSnap.location}</td>
+    <td class="meta-label">⚡ Warm Matches</td>
+    <td class="summary-warm">${warmCount}</td>
+    <td class="meta-label">Finishing</td>
+    <td class="meta-value">8%</td>
+    <td class="meta-label">Demand Pool</td>
+    <td class="meta-value" colspan="5">${result.demandPool} active buyers</td>
+  </tr>
+  <tr>
+    <td class="meta-label">Finishing</td>
+    <td class="meta-value">${assetSnap.finishing || 'N/A'}</td>
+    <td class="meta-label">Area (sqm)</td>
+    <td class="meta-value">${assetSnap.area_sqm || 'N/A'}</td>
+    <td colspan="8"></td>
+  </tr>
+
+  <!-- Empty row -->
+  <tr><td colspan="12" style="border:none;height:8px"></td></tr>
+
+  <!-- Column Headers -->
+  <tr>
+    <th class="col-header">#</th>
+    <th class="col-header">Buyer / Contact Name</th>
+    <th class="col-header">Phone / WhatsApp</th>
+    <th class="col-header">Match Score</th>
+    <th class="col-header">Recommendation</th>
+    <th class="col-header">Budget (EGP)</th>
+    <th class="col-header">Bedrooms</th>
+    <th class="col-header">Location %</th>
+    <th class="col-header">Price %</th>
+    <th class="col-header">Specs %</th>
+    <th class="col-header">Notes</th>
+    <th class="col-header">Scored By</th>
+  </tr>
+
+  <!-- Data Rows -->
+  ${rows}
+
+  <!-- Footer -->
+  <tr><td colspan="12" style="border:none;height:8px"></td></tr>
+  <tr>
+    <td colspan="12" style="background:#F8FAFC;color:#94A3B8;font-size:10px;text-align:center;padding:8px;border:1px solid #E2E8F0">
+      © ${new Date().getFullYear()} Crystal Power Investment · MatchPro™ v10.0 · CONFIDENTIAL — For internal use only
+      &nbsp;|&nbsp; Scores ≥80% = HOT · ≥65% = WARM · ≥45% = COOL · &lt;45% = COLD
+    </td>
+  </tr>
+</table>
+</body></html>`
+
+  const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = `CPI_Matches_${assetSnap.location.replace(/\s/g,'_')}_${searchedAt.toISOString().slice(0,10)}.xls`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+/* ── Helpers ────────────────────────────────────────────────── */
+function ScoreBar({ value, color }: { value: number; color: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <div style={{ flex: 1, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.08)' }}>
+        <div style={{ width: `${Math.min(100, value)}%`, height: '100%', borderRadius: 3, background: color, transition: 'width 0.5s ease' }} />
+      </div>
+      <span style={{ fontSize: '0.65rem', color, fontWeight: 700, minWidth: 26, textAlign: 'right' }}>{value}%</span>
+    </div>
+  )
+}
+
+function PhoneLink({ phone }: { phone: string }) {
+  const clean = phone.replace(/\D/g, '')
+  return (
+    <a href={`https://wa.me/${clean}`} target="_blank" rel="noopener noreferrer"
+      onClick={e => e.stopPropagation()}
+      style={{ color: '#25D366', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}>
+      💬 {phone}
+    </a>
+  )
+}
+
+/* ── Main Component ─────────────────────────────────────────── */
 export default function Matches({ apiData, loading }: Props) {
   const [asset, setAsset] = useState<AssetInput>({
-    location: 'Madinaty', type: 'apartment', purpose: 'sale', price: '5500000', bedrooms: '3',
+    mode: 'sell', location: 'Madinaty', type: 'apartment', purpose: 'sale',
+    price: '5500000', bedrooms: '3', area_sqm: '', finishing: 'finished', furnished: 'no', notes: '',
   })
-  const [buyers, setBuyers]           = useState<MatchedBuyer[]>([])
-  const [matchLoading, setMatchLoading] = useState(false)
-  const [matchSource, setMatchSource] = useState<'wa'|'market'|'mock'|''>('')
-  const [demandPoolSize, setDemandPoolSize] = useState(0)
-  const [selectedBuyer, setSelectedBuyer] = useState<MatchedBuyer | null>(null)
-  const [feedback, setFeedback]       = useState<Record<string, number>>({})
-  const [pipeline, setPipeline]       = useState<string[]>([]) // IDs saved to pipeline
-  const [pipelineSaving, setPipelineSaving] = useState<string | null>(null)
-  const [matchHistory, setMatchHistory] = useState<Array<{ asset: AssetInput; count: number; source: string; time: Date }>>([])
-  const [filterReco, setFilterReco]   = useState<string>('all')
-=======
-export default function Matches({ apiData, loading }: Props) {
-  const [asset, setAsset] = useState<AssetInput>({
-    location: 'Madinaty',
-    type:     'apartment',
-    purpose:  'sale',
-    price:    '5500000',
-    bedrooms: '3',
-  })
-  const [result, setResult]           = useState<MatchResult | null>(null)
-  const [matchLoading, setMatchLoading] = useState(false)
-  const [matchHistory, setMatchHistory] = useState<Array<{ asset: AssetInput; result: MatchResult; time: Date }>>([])
->>>>>>> origin/main
+  const [result,       setResult]       = useState<RunResult | null>(null)
+  const [running,      setRunning]      = useState(false)
+  const [selected,     setSelected]     = useState<MatchResult | null>(null)
+  const [filterReco,   setFilterReco]   = useState<string>('all')
+  const [pipeline,     setPipeline]     = useState<Set<string>>(new Set())
+  const [feedback,     setFeedback]     = useState<Record<string, number>>({})
+  const [history,      setHistory]      = useState<RunResult[]>([])
+  const [showHistory,  setShowHistory]  = useState(false)
 
-  const topLocations = apiData?.summary?.top_locations || []
-  const summary      = apiData?.summary
+  const summary    = apiData?.summary
+  const locOptions = LOCATIONS
 
-  const handleMatch = async () => {
-    setMatchLoading(true)
-<<<<<<< HEAD
-    setBuyers([])
-    setMatchSource('')
-    setSelectedBuyer(null)
+  const setField = (key: keyof AssetInput, val: string) => setAsset(p => ({ ...p, [key]: val }))
+
+  /* ── Run match ────────────────────────── */
+  const runMatch = useCallback(async () => {
+    setRunning(true)
+    setResult(null)
+    setSelected(null)
+    setFilterReco('all')
+
     try {
-      // 1. Try WA backend match endpoint
-      const waRes = await fetch('/api/match', {
+      // Try live WA backend
+      const body = {
+        asset: {
+          location:    asset.location,
+          type:        asset.type,
+          purpose:     asset.purpose,
+          price:       parseInt(asset.price) || 0,
+          bedrooms:    parseInt(asset.bedrooms) || 0,
+          area_sqm:    parseInt(asset.area_sqm) || 0,
+          finishing:   asset.finishing,
+          furnished:   asset.furnished === 'yes',
+          mode:        asset.mode,
+        }
+      }
+      const res = await fetch('/api/match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ asset: {
-          location: asset.location, type: asset.type, purpose: asset.purpose,
-          price: parseInt(asset.price), bedrooms: parseInt(asset.bedrooms),
-        }}),
-        signal: AbortSignal.timeout(30000),
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30_000),
       })
-      if (waRes.ok) {
-        const data = await waRes.json()
+      if (res.ok) {
+        const data = await res.json()
         if (data.matches?.length > 0) {
-          setBuyers(data.matches)
-          setDemandPoolSize(data.demandPoolSize || 0)
-          setMatchSource('wa')
-          setMatchHistory(prev => [{ asset: {...asset}, count: data.matches.length, source: 'WA Demand Pool', time: new Date() }, ...prev.slice(0, 9)])
+          const matches: MatchResult[] = data.matches.map((m: any) => ({
+            id:             m.id || String(Math.random()),
+            name:           m.sender || m.buyer_name || m.senderName || 'Unknown',
+            phone:          m.phone || m.buyer_phone || m.extracted?.contact || '—',
+            message:        m.message || '',
+            timestamp:      m.timestamp,
+            score:          m.score,
+            breakdown:      m.breakdown || { location: 70, price: 70, specs: 70, purpose: 70, finishing: 70 },
+            recommendation: m.recommendation || recoFromScore(m.score),
+            notes:          m.notes || '',
+            gptScored:      m.gptScored || false,
+            extracted:      m.extracted || {},
+            source:         'wa',
+          }))
+          const r: RunResult = {
+            matches, source: 'wa',
+            demandPool: data.demandPoolSize || matches.length,
+            supplyPool: 0,
+            searchedAt: new Date(),
+            assetSnap: { ...asset },
+          }
+          setResult(r)
+          setHistory(h => [r, ...h.slice(0, 19)])
           return
         }
       }
-    } catch {}
+    } catch { /* fall through to mock */ }
 
-    try {
-      // 2. Try market API
-      const mRes = await fetch('/proxy/api/public/match', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          asset_location: asset.location, asset_type: asset.type, asset_purpose: asset.purpose,
-          asset_price: parseInt(asset.price), asset_bedrooms: parseInt(asset.bedrooms),
-        }),
-        signal: AbortSignal.timeout(5000),
-      })
-      if (mRes.ok) {
-        const data = await mRes.json()
-        const list = (data.matches || data.results || []).map((m: any, i: number) => ({
-          id:          m.id || `m${i}`,
-          buyer_name:  m.buyer_name  || `Buyer ${i + 1}`,
-          buyer_phone: m.buyer_phone || m.contact || '—',
-          score:       typeof m.score === 'number' ? Math.round(m.score * (m.score > 1 ? 1 : 100)) : 70,
-          recommendation: (m.recommendation || 'warm') as any,
-          location:    asset.location,
-          budget:      m.budget || m.budget_max || parseInt(asset.price),
-          bedrooms:    m.bedrooms || parseInt(asset.bedrooms),
-          notes:       m.notes || '',
-          gptScored:   false,
-          breakdown: { location: 80, price: 75, specs: 70 },
-        })).sort((a: any, b: any) => b.score - a.score)
-        setBuyers(list)
-        setMatchSource('market')
-        setMatchHistory(prev => [{ asset: {...asset}, count: list.length, source: 'Market API', time: new Date() }, ...prev.slice(0, 9)])
-        return
-      }
-    } catch {}
+    // Mock fallback
+    const mocks = buildMockMatches(asset)
+    const r: RunResult = {
+      matches: mocks, source: 'mock',
+      demandPool: mocks.length,
+      supplyPool: 0,
+      searchedAt: new Date(),
+      assetSnap: { ...asset },
+    }
+    setResult(r)
+    setHistory(h => [r, ...h.slice(0, 19)])
+  }, [asset])
 
-    // 3. Local mock fallback
-    const mocks = generateMockMatches(asset, topLocations)
-    setBuyers(mocks)
-    setMatchSource('mock')
-    setMatchHistory(prev => [{ asset: {...asset}, count: mocks.length, source: 'Local Score', time: new Date() }, ...prev.slice(0, 9)])
-  }
-
-  const saveToPipeline = async (buyer: MatchedBuyer) => {
-    const id = buyer.id
-    setPipelineSaving(id)
+  /* ── Save to pipeline ──────────────────── */
+  const savePipeline = async (m: MatchResult) => {
+    if (pipeline.has(m.id)) return
+    setPipeline(p => new Set([...p, m.id]))
     try {
       await fetch('/api/pipeline', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          matchId:      id,
-          buyerName:    buyer.buyer_name || buyer.sender || 'Unknown',
+          matchId:      m.id,
+          buyerName:    m.name,
           sellerName:   'Crystal Power Investment',
-          propertyDesc: `${asset.bedrooms}BR ${asset.type} in ${asset.location} — ${parseInt(asset.price).toLocaleString()} EGP`,
-          status: 'new',
-          notes: `Score: ${buyer.score}% · ${buyer.recommendation}`,
+          propertyDesc: `${asset.bedrooms}BR ${asset.type} in ${asset.location}`,
+          score:        m.score,
+          status:       'new',
+          notes:        m.notes,
         }),
-      })
-      setPipeline(prev => [...prev, id])
-    } catch {
-      setPipeline(prev => [...prev, id]) // save locally even if API fails
-    } finally {
-      setPipelineSaving(null)
-    }
-  }
-
-  const submitFeedback = async (buyerId: string, rating: number) => {
-    setFeedback(prev => ({ ...prev, [buyerId]: rating }))
-    try {
-      await fetch('/api/match/feedback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matchId: buyerId, rating, comment: '' }),
       })
     } catch {}
   }
 
-  const exportCSV = () => {
-    const rows = [
-      ['Crystal Power Investment — Match Export'],
-      ['Date', new Date().toLocaleDateString()],
-      ['Asset', `${asset.bedrooms}BR ${asset.type} in ${asset.location}`],
-      ['Price', parseInt(asset.price).toLocaleString() + ' EGP'],
-      [],
-      ['#', 'Name/Contact', 'Phone', 'Score', 'Recommendation', 'Budget EGP', 'Bedrooms', 'Notes'],
-      ...filteredBuyers.map((b, i) => [
-        i + 1,
-        b.buyer_name || b.sender || '—',
-        b.buyer_phone || b.phone || '—',
-        b.score + '%',
-        b.recommendation,
-        b.budget ? Math.round(b.budget).toLocaleString() : b.extracted?.budget_max || '—',
-        b.bedrooms || b.extracted?.bedrooms || '—',
-        (b.notes || '').replace(/,/g, ';'),
-      ]),
-    ]
-    const csv = rows.map(r => r.join(',')).join('\n')
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href     = url
-    a.download = `CPI_Matches_${asset.location}_${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+  /* ── Feedback ──────────────────────────── */
+  const sendFeedback = async (id: string, rating: number) => {
+    setFeedback(p => ({ ...p, [id]: rating }))
+    try {
+      await fetch('/api/match/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchId: id, rating }),
+      })
+    } catch {}
   }
 
-  const filteredBuyers = filterReco === 'all' ? buyers : buyers.filter(b => b.recommendation === filterReco)
+  /* ── Filtered results ──────────────────── */
+  const filtered = result
+    ? (filterReco === 'all' ? result.matches : result.matches.filter(m => m.recommendation === filterReco))
+    : []
 
+  /* ── Render ────────────────────────────── */
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }} className="page-container">
 
-      {/* ── Header ─────────────────────────────────────── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      {/* ── Page Header ─────────────────────────────────── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px' }}>🎯 Property Matches</h1>
+          <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px' }}>
+            🎯 Property Matches
+          </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-            Real-time matching engine — Location 40% · Price 35% · Specs 25%
+            Crystal Power Investment · AI-powered buyer ↔ supply matching · Location 35% · Price 30% · Specs 15% · Purpose 12% · Finishing 8%
           </p>
         </div>
-        {buyers.length > 0 && (
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <span style={{
-              padding: '5px 14px', borderRadius: '12px',
-              background: matchSource === 'wa' ? 'rgba(16,185,129,0.12)' : matchSource === 'market' ? 'rgba(14,165,233,0.12)' : 'rgba(245,158,11,0.12)',
-              border: `1px solid ${matchSource === 'wa' ? 'rgba(16,185,129,0.3)' : matchSource === 'market' ? 'rgba(14,165,233,0.3)' : 'rgba(245,158,11,0.3)'}`,
-              fontSize: '0.72rem', fontWeight: 700,
-              color: matchSource === 'wa' ? 'var(--brand-green)' : matchSource === 'market' ? 'var(--brand-teal)' : 'var(--brand-gold)',
-            }}>
-              {matchSource === 'wa' ? `⚡ WA Demand Pool (${demandPoolSize})` : matchSource === 'market' ? '📡 Live Market API' : '📊 Illustrative Demo'}
-            </span>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {history.length > 0 && (
+            <button onClick={() => setShowHistory(!showHistory)}
+              style={{ padding: '7px 14px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 600,
+                border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              🕐 History ({history.length})
+            </button>
+          )}
+          {result && (
+            <button onClick={() => exportExcel(result)}
+              style={{ padding: '7px 14px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700,
+                border: '1px solid rgba(16,185,129,0.4)', background: 'rgba(16,185,129,0.1)', color: '#10b981', cursor: 'pointer' }}>
+              📊 Export Excel
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* ── Stats ─────────────────────────────────────── */}
+      {/* ── KPI Stats ───────────────────────────────────── */}
       <div className="grid grid-cols-4" style={{ gap: '16px' }}>
-        <StatCard title="Total Supply"  value={(summary?.total_supply  || 4224).toLocaleString()} subtitle="Active listings"    icon="🏠" color="var(--brand-teal)"   loading={loading} />
-        <StatCard title="Total Demand"  value={(summary?.total_demand  || 7626).toLocaleString()} subtitle="Active buyers"      icon="👥" color="var(--brand-green)"  loading={loading} />
-        <StatCard title="Total Matches" value={(summary?.total_matches || 57105).toLocaleString()} subtitle="AI connections"    icon="🎯" color="var(--brand-gold)"   loading={loading} />
-        <StatCard title={matchSource === 'wa' ? 'WA Demand Pool' : 'Match Rate'} value={matchSource === 'wa' ? String(demandPoolSize) : buyers.length > 0 ? `${buyers.filter(b=>b.score>=70).length}/${buyers.length}` : '—'} subtitle={matchSource === 'wa' ? 'WhatsApp buyers' : 'High quality (≥70%)'} icon="📊" color="var(--brand-purple)" loading={false} />
+        <StatCard title="Total Supply"  value={(summary?.total_supply  || 4_224).toLocaleString()} subtitle="Active listings"    icon="🏠" color="var(--brand-teal)"   loading={loading} />
+        <StatCard title="Total Demand"  value={(summary?.total_demand  || 7_626).toLocaleString()} subtitle="Active buyers"      icon="👥" color="var(--brand-green)"  loading={loading} />
+        <StatCard title="AI Matches"    value={(summary?.total_matches || 57_105).toLocaleString()} subtitle="Connections made"  icon="🎯" color="var(--brand-gold)"   loading={loading} />
+        <StatCard
+          title={result ? (result.source === 'wa' ? 'WA Pool Size' : 'Results') : 'Avg Match Rate'}
+          value={result ? String(result.source === 'wa' ? result.demandPool : result.matches.length) : '78%'}
+          subtitle={result ? (result.source === 'wa' ? 'Live WA buyers' : 'Demo matches') : 'Historical avg'}
+          icon="📊" color="var(--brand-purple)" loading={false} />
       </div>
 
-      {/* ── Search Form ───────────────────────────────── */}
-      <Card title="🔍 Match Your Property" subtitle="Enter property details to find qualified buyers">
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px', marginBottom: '14px' }}>
+      {/* ── Mode Tabs ───────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: '8px' }}>
+        {([
+          { mode: 'sell',   icon: '🏠', label: 'SELL — Find Buyers',    desc: 'Match your property to active buyers in the WA demand pool' },
+          { mode: 'buy',    icon: '🔍', label: 'BUY / RENT — Find Supply', desc: 'Match your requirements to available properties' },
+          { mode: 'invest', icon: '📈', label: 'INVESTMENT — Find Deals',  desc: 'Find underpriced assets with high ROI potential' },
+        ] as const).map(({ mode, icon, label, desc }) => (
+          <button key={mode} onClick={() => setField('mode', mode)}
+            style={{
+              flex: 1, padding: '14px 16px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left',
+              border: `1.5px solid ${asset.mode === mode ? 'var(--brand-teal)' : 'var(--border)'}`,
+              background: asset.mode === mode ? 'rgba(14,165,233,0.08)' : 'rgba(0,0,0,0.1)',
+              transition: 'all 0.15s',
+            }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: asset.mode === mode ? 'var(--brand-teal)' : 'var(--text-primary)', marginBottom: '3px' }}>
+              {icon} {label}
+            </div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{desc}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* ── Input Form ──────────────────────────────────── */}
+      <Card title={`🔍 ${asset.mode === 'sell' ? 'Enter Property Details' : asset.mode === 'buy' ? 'Enter Your Requirements' : 'Investment Criteria'}`}
+            subtitle="All fields improve match accuracy — fill as many as possible">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+
+          {/* Location */}
           <div>
-            <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', fontWeight: 600, textTransform: 'uppercase' }}>Location</label>
-            <select value={asset.location} onChange={e => setAsset(p => ({ ...p, location: e.target.value }))}>
-              {topLocations.map((l: any) => <option key={l.name} value={l.name}>{l.name}</option>)}
-              <option value="Madinaty">Madinaty</option>
-              <option value="New Cairo">New Cairo</option>
+            <label style={labelStyle}>📍 Location</label>
+            <select value={asset.location} onChange={e => setField('location', e.target.value)} style={selectStyle}>
+              {locOptions.map(l => <option key={l} value={l}>{l}</option>)}
             </select>
           </div>
+
+          {/* Type */}
           <div>
-            <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', fontWeight: 600, textTransform: 'uppercase' }}>Type</label>
-            <select value={asset.type} onChange={e => setAsset(p => ({ ...p, type: e.target.value }))}>
-              {['apartment','villa','studio','townhouse','duplex','penthouse'].map(t => (
-                <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
-              ))}
+            <label style={labelStyle}>🏗️ Property Type</label>
+            <select value={asset.type} onChange={e => setField('type', e.target.value)} style={selectStyle}>
+              {PROPERTY_TYPES.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
             </select>
           </div>
+
+          {/* Purpose */}
           <div>
-            <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', fontWeight: 600, textTransform: 'uppercase' }}>Purpose</label>
-            <select value={asset.purpose} onChange={e => setAsset(p => ({ ...p, purpose: e.target.value }))}>
+            <label style={labelStyle}>🎯 Purpose</label>
+            <select value={asset.purpose} onChange={e => setField('purpose', e.target.value)} style={selectStyle}>
               <option value="sale">For Sale</option>
               <option value="rent">For Rent</option>
             </select>
           </div>
+
+          {/* Price */}
           <div>
-            <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', fontWeight: 600, textTransform: 'uppercase' }}>Bedrooms</label>
-            <select value={asset.bedrooms} onChange={e => setAsset(p => ({ ...p, bedrooms: e.target.value }))}>
-              {['1','2','3','4','5'].map(n => <option key={n} value={n}>{n} BR</option>)}
+            <label style={labelStyle}>💰 {asset.mode === 'sell' ? 'Asking Price' : 'Max Budget'} (EGP)</label>
+            <input type="number" value={asset.price} onChange={e => setField('price', e.target.value)}
+              placeholder="e.g. 5500000" style={inputStyle} />
+          </div>
+
+          {/* Bedrooms */}
+          <div>
+            <label style={labelStyle}>🛏️ Bedrooms</label>
+            <select value={asset.bedrooms} onChange={e => setField('bedrooms', e.target.value)} style={selectStyle}>
+              <option value="0">Any</option>
+              {['1','2','3','4','5','6'].map(n => <option key={n} value={n}>{n} BR</option>)}
             </select>
           </div>
+
+          {/* Area */}
           <div>
-            <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px', fontWeight: 600, textTransform: 'uppercase' }}>Price (EGP)</label>
-            <input type="number" value={asset.price} onChange={e => setAsset(p => ({ ...p, price: e.target.value }))} placeholder="e.g. 5500000" />
+            <label style={labelStyle}>📐 Area (sqm)</label>
+            <input type="number" value={asset.area_sqm} onChange={e => setField('area_sqm', e.target.value)}
+              placeholder="e.g. 150" style={inputStyle} />
           </div>
+
+          {/* Finishing */}
+          <div>
+            <label style={labelStyle}>🎨 Finishing</label>
+            <select value={asset.finishing} onChange={e => setField('finishing', e.target.value)} style={selectStyle}>
+              <option value="">Any</option>
+              {FINISHING.map(f => <option key={f} value={f}>{f.charAt(0).toUpperCase() + f.slice(1)}</option>)}
+            </select>
+          </div>
+
+          {/* Furnished */}
+          <div>
+            <label style={labelStyle}>🛋️ Furnished</label>
+            <select value={asset.furnished} onChange={e => setField('furnished', e.target.value)} style={selectStyle}>
+              <option value="">Any</option>
+              <option value="yes">Furnished</option>
+              <option value="no">Unfurnished</option>
+            </select>
+          </div>
+
         </div>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          <button
-            onClick={handleMatch}
-            disabled={matchLoading}
-            className="btn btn-primary"
-            style={{ padding: '11px 28px', fontSize: '0.9rem', opacity: matchLoading ? 0.7 : 1 }}
-          >
-            <span style={{ animation: matchLoading ? 'spin 0.8s linear infinite' : 'none', display: 'inline-block' }}>
-              {matchLoading ? '⟳' : '🎯'}
+
+        {/* Notes */}
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>📝 Additional Notes (optional)</label>
+          <input value={asset.notes} onChange={e => setField('notes', e.target.value)}
+            placeholder="Floor, view, payment plan, urgency, specific requirements…"
+            style={{ ...inputStyle, width: '100%' }} />
+        </div>
+
+        {/* CTA */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+          <button onClick={runMatch} disabled={running} className="btn btn-primary"
+            style={{ padding: '12px 32px', fontSize: '0.95rem', fontWeight: 700, opacity: running ? 0.7 : 1, minWidth: 200 }}>
+            <span style={{ display: 'inline-block', animation: running ? 'spin 0.8s linear infinite' : 'none' }}>
+              {running ? '⟳' : '🎯'}
             </span>
-            {matchLoading ? ' Finding Buyers… (GPT scoring)' : ' Find Matching Buyers'}
+            {running ? '  Matching…' : `  ${asset.mode === 'sell' ? 'Find Buyers' : asset.mode === 'buy' ? 'Find Properties' : 'Find Deals'}`}
           </button>
-          {matchLoading && (
+          {running && (
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', animation: 'pulse 1.5s infinite' }}>
+              ⚡ Searching {asset.location} demand pool with GPT-5-mini scoring…
+            </span>
+          )}
+          {result && !running && (
             <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-              ⚡ Scoring against WA demand pool with GPT-5-mini…
+              Last run: {result.searchedAt.toLocaleTimeString()} · {result.matches.length} results · {result.source === 'wa' ? '⚡ Live WA' : '📊 Demo'}
             </span>
           )}
         </div>
       </Card>
 
-      {/* ── Results ──────────────────────────────────── */}
-      {buyers.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {/* Result Header */}
+      {/* ── Results ──────────────────────────────────────── */}
+      {result && (
+        <>
+          {/* Result bar */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              ✅ {buyers.length} qualified buyers found for your{' '}
-              <span style={{ color: 'var(--brand-teal)' }}>{asset.bedrooms}BR {asset.type}</span> in{' '}
-              <span style={{ color: 'var(--brand-purple)' }}>{asset.location}</span>
+              ✅ {result.matches.length} matches for{' '}
+              <span style={{ color: 'var(--brand-teal)' }}>{asset.bedrooms}BR {asset.type}</span>{' '}
+              in <span style={{ color: 'var(--brand-purple)' }}>{asset.location}</span>
+              {' '}—{' '}
+              <span style={{ color: result.source === 'wa' ? '#10b981' : '#f59e0b', fontSize: '0.78rem', fontWeight: 600 }}>
+                {result.source === 'wa' ? `⚡ Live WA Pool (${result.demandPool} buyers)` : '📊 Illustrative Demo Data'}
+              </span>
             </div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              {/* Filter buttons */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* Filter pills */}
               {(['all','hot','warm','cool','cold'] as const).map(r => {
-                const count = r === 'all' ? buyers.length : buyers.filter(b => b.recommendation === r).length
-                const meta  = r === 'all' ? null : RECO_META[r]
+                const cnt = r === 'all' ? result.matches.length : result.matches.filter(m => m.recommendation === r).length
+                const rm  = r !== 'all' ? RECO[r] : null
                 return (
                   <button key={r} onClick={() => setFilterReco(r)} style={{
-                    padding: '5px 12px', borderRadius: '16px', fontSize: '0.75rem', cursor: 'pointer',
-                    border: `1px solid ${filterReco === r ? (meta?.color || 'var(--brand-teal)') : 'var(--border)'}`,
-                    background: filterReco === r ? (meta?.bg || 'rgba(14,165,233,0.12)') : 'rgba(0,0,0,0.15)',
-                    color: filterReco === r ? (meta?.color || 'var(--brand-teal)') : 'var(--text-muted)',
-                    fontWeight: filterReco === r ? 700 : 400,
+                    padding: '5px 12px', borderRadius: '16px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer',
+                    border: `1px solid ${filterReco === r ? (rm?.border || 'var(--brand-teal)') : 'var(--border)'}`,
+                    background: filterReco === r ? (rm?.bg || 'rgba(14,165,233,0.1)') : 'rgba(0,0,0,0.12)',
+                    color: filterReco === r ? (rm?.color || 'var(--brand-teal)') : 'var(--text-muted)',
+                    transition: 'all 0.1s',
                   }}>
-                    {meta ? `${meta.icon} ${r}` : '📊 All'} ({count})
+                    {rm ? `${rm.icon} ${r.toUpperCase()}` : 'ALL'} ({cnt})
                   </button>
                 )
               })}
-              <button onClick={exportCSV} className="btn" style={{ padding: '6px 14px', fontSize: '0.78rem', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.3)', color: 'var(--brand-green)', background: 'rgba(16,185,129,0.08)' }}>
-                ⬇️ Export CSV
+              <button onClick={() => exportExcel(result)} style={{
+                padding: '5px 14px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer',
+                border: '1px solid rgba(16,185,129,0.4)', background: 'rgba(16,185,129,0.1)', color: '#10b981',
+              }}>
+                📊 Export Excel
               </button>
             </div>
           </div>
 
-          {/* Buyer Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: selectedBuyer ? '1.5fr 1fr' : '1fr', gap: '16px' }}>
+          {/* Grid: list + detail */}
+          <div style={{ display: 'grid', gridTemplateColumns: selected ? 'minmax(0,1.7fr) minmax(0,1fr)' : '1fr', gap: '16px', alignItems: 'start' }}>
+
+            {/* ── Match Cards ─────────────── */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {filteredBuyers.map((buyer, i) => {
-                const reco = buyer.recommendation || 'cool'
-                const meta = RECO_META[reco]
-                const nameInitials = (buyer.buyer_name || buyer.sender || 'B').slice(0, 2).toUpperCase()
-                const isInPipeline = pipeline.includes(buyer.id)
-                const fb = feedback[buyer.id]
+              {filtered.length === 0 && (
+                <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', borderRadius: '10px', border: '1px dashed var(--border)' }}>
+                  No {filterReco} matches found
+                </div>
+              )}
+              {filtered.map((m, i) => {
+                const rm       = RECO[m.recommendation]
+                const initials = m.name.slice(0, 2).toUpperCase()
+                const isActive = selected?.id === m.id
+                const hasFb    = feedback[m.id] !== undefined
+                const inPipe   = pipeline.has(m.id)
                 return (
-                  <div
-                    key={buyer.id}
-                    onClick={() => setSelectedBuyer(selectedBuyer?.id === buyer.id ? null : buyer)}
+                  <div key={m.id} onClick={() => setSelected(isActive ? null : m)}
                     style={{
-                      padding: '14px 16px',
-                      borderRadius: '10px',
-                      background: selectedBuyer?.id === buyer.id ? meta.bg : 'rgba(0,0,0,0.15)',
-                      border: `1px solid ${selectedBuyer?.id === buyer.id ? meta.color + '60' : 'var(--border)'}`,
-                      cursor: 'pointer',
+                      padding: '14px 16px', borderRadius: '12px', cursor: 'pointer',
+                      background: isActive ? rm.bg : 'rgba(0,0,0,0.15)',
+                      border: `1px solid ${isActive ? rm.color + '70' : 'var(--border)'}`,
                       transition: 'all 0.15s',
                     }}
-                    onMouseEnter={e => { if (selectedBuyer?.id !== buyer.id) (e.currentTarget as HTMLElement).style.background = 'rgba(14,165,233,0.05)' }}
-                    onMouseLeave={e => { if (selectedBuyer?.id !== buyer.id) (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.15)' }}
+                    onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.borderColor = rm.color + '50' }}
+                    onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)' }}
                   >
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                      {/* Avatar */}
-                      <div style={{
-                        width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
-                        background: AVATAR_COLORS[i % AVATAR_COLORS.length],
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: '0.85rem', fontWeight: 700, color: '#fff',
-                      }}>
-                        {nameInitials}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                      {/* Rank + avatar */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: i < 3 ? '#f59e0b' : 'var(--border)' }} />
+                        <div style={{
+                          width: 38, height: 38, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          background: `linear-gradient(135deg, ${rm.color}40, ${rm.color}20)`,
+                          border: `1.5px solid ${rm.color}50`,
+                          fontSize: '0.75rem', fontWeight: 700, color: rm.color,
+                        }}>{initials}</div>
                       </div>
 
+                      {/* Info */}
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                          <div>
-                            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '3px' }}>
-                              {buyer.buyer_name || buyer.sender || `Buyer ${i + 1}`}
-                              {buyer.gptScored && (
-                                <span style={{ marginLeft: '6px', padding: '1px 7px', borderRadius: '10px', background: 'rgba(139,92,246,0.15)', color: '#8b5cf6', fontSize: '0.65rem', fontWeight: 700 }}>⚡GPT</span>
-                              )}
-                            </div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                              {buyer.buyer_phone || buyer.phone || '—'}
-                              {buyer.extracted?.location && <span style={{ marginLeft: '8px', color: 'var(--brand-teal)' }}>📍 {buyer.extracted.location}</span>}
-                            </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {m.name}
                           </div>
-                          <div style={{ display: 'flex', flex: 'column', alignItems: 'flex-end', gap: '4px' }}>
-                            <span style={{
-                              padding: '3px 10px', borderRadius: '12px',
-                              background: meta.bg, color: meta.color,
-                              fontSize: '0.75rem', fontWeight: 800,
-                              border: `1px solid ${meta.color}40`,
-                            }}>
-                              {meta.icon} {buyer.score}%
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                            {m.gptScored && (
+                              <span style={{ fontSize: '0.6rem', background: 'rgba(139,92,246,0.15)', color: '#8b5cf6', border: '1px solid rgba(139,92,246,0.3)', borderRadius: '4px', padding: '1px 5px', fontWeight: 700 }}>GPT</span>
+                            )}
+                            <span style={{ padding: '2px 8px', borderRadius: '8px', fontSize: '0.7rem', fontWeight: 800, background: rm.bg, color: rm.color, border: `1px solid ${rm.border}` }}>
+                              {rm.icon} {m.score}%
                             </span>
                           </div>
                         </div>
 
-                        {/* Score breakdown bars */}
-                        {buyer.breakdown && (
-                          <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
-                            {Object.entries(buyer.breakdown).filter(([, v]) => v !== undefined).map(([key, val]) => (
-                              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.68rem' }}>
-                                <span style={{ color: 'var(--text-muted)', textTransform: 'capitalize', minWidth: '48px' }}>{key}</span>
-                                <div style={{ width: 50, height: 4, borderRadius: 2, background: 'rgba(0,0,0,0.3)' }}>
-                                  <div style={{ height: '100%', borderRadius: 2, width: `${Math.min(Number(val), 100)}%`, background: Number(val) >= 80 ? '#10b981' : Number(val) >= 60 ? '#f59e0b' : '#ef4444' }} />
-                                </div>
-                                <span style={{ color: 'var(--text-muted)', minWidth: '25px' }}>{Math.round(Number(val) || 0)}%</span>
-                              </div>
-                            ))}
+                        {/* Phone */}
+                        <div style={{ marginBottom: '6px' }}>
+                          {m.phone !== '—' ? <PhoneLink phone={m.phone} /> : <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>No contact</span>}
+                        </div>
+
+                        {/* Score bars */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px', marginBottom: '8px' }}>
+                          {[
+                            { label: 'Location', val: m.breakdown?.location ?? 0, color: '#0ea5e9' },
+                            { label: 'Price',    val: m.breakdown?.price ?? 0,    color: '#10b981' },
+                            { label: 'Specs',    val: m.breakdown?.specs ?? 0,    color: '#f59e0b' },
+                            { label: 'Purpose',  val: m.breakdown?.purpose ?? 0,  color: '#8b5cf6' },
+                          ].map(({ label, val, color }) => (
+                            <div key={label}>
+                              <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginBottom: '2px' }}>{label}</div>
+                              <ScoreBar value={val} color={color} />
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Notes snippet */}
+                        {m.notes && (
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '8px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            💬 {m.notes.substring(0, 90)}{m.notes.length > 90 ? '…' : ''}
                           </div>
                         )}
 
-                        {/* Notes + Actions */}
-                        {buyer.notes && (
-                          <div style={{ marginTop: '6px', fontSize: '0.73rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                            {buyer.notes.slice(0, 100)}
-                          </div>
-                        )}
-
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+                        {/* Actions */}
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                           <button
-                            onClick={() => saveToPipeline(buyer)}
-                            disabled={isInPipeline || pipelineSaving === buyer.id}
+                            onClick={e => { e.stopPropagation(); savePipeline(m) }}
+                            disabled={inPipe}
                             style={{
-                              padding: '4px 12px', borderRadius: '6px', fontSize: '0.72rem', cursor: isInPipeline ? 'default' : 'pointer',
-                              background: isInPipeline ? 'rgba(16,185,129,0.15)' : 'rgba(14,165,233,0.08)',
-                              border: `1px solid ${isInPipeline ? 'rgba(16,185,129,0.3)' : 'rgba(14,165,233,0.25)'}`,
-                              color: isInPipeline ? 'var(--brand-green)' : 'var(--brand-teal)',
-                            }}
-                          >
-                            {isInPipeline ? '✅ In Pipeline' : pipelineSaving === buyer.id ? '⟳…' : '📋 Add to Pipeline'}
+                              padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 600, cursor: inPipe ? 'default' : 'pointer',
+                              border: `1px solid ${inPipe ? 'rgba(16,185,129,0.3)' : 'var(--border)'}`,
+                              background: inPipe ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.04)',
+                              color: inPipe ? '#10b981' : 'var(--text-secondary)',
+                            }}>
+                            {inPipe ? '✅ In Pipeline' : '+ Add to Pipeline'}
                           </button>
-                          {/* Star rating */}
+                          {/* Rating stars */}
                           <div style={{ display: 'flex', gap: '2px' }}>
                             {[1,2,3,4,5].map(star => (
-                              <button key={star} onClick={() => submitFeedback(buyer.id, star)} style={{
-                                background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem',
-                                color: fb && star <= fb ? '#f59e0b' : 'var(--text-muted)',
-                                padding: '0 1px',
-                              }}>★</button>
+                              <button key={star} onClick={e => { e.stopPropagation(); sendFeedback(m.id, star) }}
+                                style={{ fontSize: '0.75rem', border: 'none', background: 'none', cursor: 'pointer', color: hasFb && (feedback[m.id] || 0) >= star ? '#f59e0b' : 'var(--border)', padding: '0 1px' }}>
+                                ★
+                              </button>
                             ))}
                           </div>
+                          {m.timestamp && (
+                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                              {new Date(m.timestamp * 1000).toLocaleDateString()}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -526,461 +814,185 @@ export default function Matches({ apiData, loading }: Props) {
               })}
             </div>
 
-            {/* Detail Panel */}
-            {selectedBuyer && (
-              <div style={{ padding: '18px', borderRadius: '12px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border)', position: 'sticky', top: '80px', maxHeight: '70vh', overflowY: 'auto' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}>
-                  <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>Match Detail</div>
-                  <button onClick={() => setSelectedBuyer(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.1rem' }}>✕</button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {[
-                    ['Name',     selectedBuyer.buyer_name || selectedBuyer.sender || '—'],
-                    ['Phone',    selectedBuyer.buyer_phone || selectedBuyer.phone || '—'],
-                    ['Score',    `${selectedBuyer.score}%`],
-                    ['Rating',   selectedBuyer.recommendation.toUpperCase()],
-                    ['Budget',   selectedBuyer.budget ? Math.round(selectedBuyer.budget).toLocaleString() + ' EGP' : selectedBuyer.extracted?.budget_max ? Number(selectedBuyer.extracted.budget_max).toLocaleString() + ' EGP' : '—'],
-                    ['Bedrooms', String(selectedBuyer.bedrooms || selectedBuyer.extracted?.bedrooms || '—')],
-                    ['Location', selectedBuyer.location || selectedBuyer.extracted?.location || '—'],
-                    ['Purpose',  selectedBuyer.extracted?.purpose || asset.purpose],
-                    ['GPT',      selectedBuyer.gptScored ? '✅ GPT-5-mini scored' : '🔢 Local algorithm'],
-                  ].map(([l, v]) => (
-                    <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem' }}>
-                      <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{l}</span>
-                      <span style={{ color: 'var(--text-primary)' }}>{v}</span>
+            {/* ── Detail Panel ─────────────── */}
+            {selected && (
+              <div style={{ position: 'sticky', top: '80px' }}>
+                <Card title={`👤 ${selected.name}`} subtitle="Full match analysis">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {/* Score ring */}
+                    <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                      <div style={{
+                        width: 88, height: 88, borderRadius: '50%', margin: '0 auto 8px',
+                        background: `conic-gradient(${RECO[selected.recommendation].color} ${selected.score * 3.6}deg, rgba(255,255,255,0.05) 0deg)`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: `0 0 20px ${RECO[selected.recommendation].color}40`,
+                      }}>
+                        <div style={{
+                          width: 68, height: 68, borderRadius: '50%', background: 'var(--bg-elevated)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: '1.3rem', fontWeight: 900, color: RECO[selected.recommendation].color,
+                        }}>
+                          {selected.score}%
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 700, color: RECO[selected.recommendation].color }}>
+                        {RECO[selected.recommendation].icon} {RECO[selected.recommendation].label} MATCH
+                      </div>
+                      {selected.gptScored && (
+                        <div style={{ fontSize: '0.65rem', color: '#8b5cf6', marginTop: '4px' }}>✦ GPT-5-mini scored</div>
+                      )}
                     </div>
-                  ))}
-                  {selectedBuyer.message && (
-                    <div style={{ marginTop: '8px', padding: '10px', borderRadius: '7px', background: 'rgba(0,0,0,0.2)' }}>
-                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 700 }}>WA Message</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{selectedBuyer.message}</div>
+
+                    {/* Contact */}
+                    <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '10px 12px' }}>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 700, textTransform: 'uppercase' }}>Contact</div>
+                      {selected.phone !== '—' ? <PhoneLink phone={selected.phone} /> : <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Not available</span>}
                     </div>
-                  )}
-                  {selectedBuyer.notes && (
-                    <div style={{ padding: '10px', borderRadius: '7px', background: 'rgba(14,165,233,0.06)', border: '1px solid rgba(14,165,233,0.15)', fontSize: '0.78rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                      💡 {selectedBuyer.notes}
+
+                    {/* Score breakdown */}
+                    <div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 700, textTransform: 'uppercase' }}>Score Breakdown</div>
+                      {[
+                        { label: 'Location match',   val: selected.breakdown?.location  ?? 0, color: '#0ea5e9', weight: '35%' },
+                        { label: 'Price / Budget',   val: selected.breakdown?.price     ?? 0, color: '#10b981', weight: '30%' },
+                        { label: 'Specs / Bedrooms', val: selected.breakdown?.specs     ?? 0, color: '#f59e0b', weight: '15%' },
+                        { label: 'Purpose (sale/rent)', val: selected.breakdown?.purpose ?? 0, color: '#8b5cf6', weight: '12%' },
+                        { label: 'Finishing type',   val: selected.breakdown?.finishing ?? 0, color: '#06b6d4', weight: '8%' },
+                      ].map(({ label, val, color, weight }) => (
+                        <div key={label} style={{ marginBottom: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{label}</span>
+                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>weight {weight}</span>
+                          </div>
+                          <ScoreBar value={val} color={color} />
+                        </div>
+                      ))}
                     </div>
-                  )}
-                  <button
-                    onClick={() => saveToPipeline(selectedBuyer)}
-                    disabled={pipeline.includes(selectedBuyer.id)}
-                    className="btn btn-primary"
-                    style={{ marginTop: '8px', width: '100%', padding: '10px', fontSize: '0.85rem', justifyContent: 'center', opacity: pipeline.includes(selectedBuyer.id) ? 0.6 : 1 }}
-                  >
-                    {pipeline.includes(selectedBuyer.id) ? '✅ Saved to CRM Pipeline' : '📋 Save to CRM Pipeline'}
-                  </button>
-                </div>
+
+                    {/* Extracted data */}
+                    {selected.extracted && Object.keys(selected.extracted).some(k => selected.extracted[k]) && (
+                      <div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: 700, textTransform: 'uppercase' }}>Extracted Info</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {[
+                            { label: 'Location',  val: selected.extracted.location },
+                            { label: 'Budget',    val: selected.extracted.budget_max ? Math.round(selected.extracted.budget_max).toLocaleString() + ' EGP' : null },
+                            { label: 'Bedrooms',  val: selected.extracted.bedrooms },
+                            { label: 'Purpose',   val: selected.extracted.purpose },
+                            { label: 'Finishing', val: selected.extracted.finishing },
+                            { label: 'Urgent',    val: selected.extracted.urgent ? '⚡ YES' : null },
+                          ].filter(r => r.val).map(({ label, val }) => (
+                            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                              <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+                              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{String(val)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Original message */}
+                    {selected.message && (
+                      <div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 700, textTransform: 'uppercase' }}>Original Message</div>
+                        <div style={{
+                          background: 'rgba(0,0,0,0.2)', borderRadius: '8px', padding: '10px',
+                          fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.5,
+                          maxHeight: '120px', overflow: 'auto',
+                          direction: selected.message.match(/[\u0600-\u06FF]/) ? 'rtl' : 'ltr',
+                        }}>
+                          {selected.message}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* GPT Notes */}
+                    {selected.notes && (
+                      <div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 700, textTransform: 'uppercase' }}>AI Analysis</div>
+                        <div style={{ background: 'rgba(139,92,246,0.08)', borderRadius: '8px', padding: '10px', fontSize: '0.75rem', color: 'var(--text-secondary)', border: '1px solid rgba(139,92,246,0.2)', lineHeight: 1.5 }}>
+                          {selected.notes}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action buttons */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <button onClick={() => savePipeline(selected)} disabled={pipeline.has(selected.id)}
+                        className="btn btn-primary" style={{ padding: '10px', fontSize: '0.82rem', opacity: pipeline.has(selected.id) ? 0.7 : 1 }}>
+                        {pipeline.has(selected.id) ? '✅ Added to CRM Pipeline' : '+ Save to CRM Pipeline'}
+                      </button>
+                      {selected.phone !== '—' && (
+                        <a href={`https://wa.me/${selected.phone.replace(/\D/g,'')}`} target="_blank" rel="noopener noreferrer"
+                          style={{ display: 'block', padding: '10px', borderRadius: '8px', textAlign: 'center', fontSize: '0.82rem', fontWeight: 700,
+                            background: 'rgba(37,211,102,0.1)', border: '1px solid rgba(37,211,102,0.3)', color: '#25D366', textDecoration: 'none' }}>
+                          💬 Contact on WhatsApp
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                </Card>
               </div>
             )}
+          </div>
+        </>
+      )}
+
+      {/* ── Empty state ──────────────────────────────────── */}
+      {!result && !running && (
+        <div style={{ padding: '48px 24px', textAlign: 'center', borderRadius: '14px', border: '1px dashed var(--border)', background: 'rgba(0,0,0,0.1)' }}>
+          <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>🎯</div>
+          <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>Ready to Match</div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', maxWidth: 420, margin: '0 auto' }}>
+            Configure your property details above, then click <strong>Find Buyers</strong> to search the live WhatsApp demand pool with GPT-5-mini scoring.
           </div>
         </div>
       )}
 
-      {/* ── Match History ─────────────────────────────── */}
-      {matchHistory.length > 0 && (
-        <Card title="🕒 Recent Searches" subtitle="Match history this session">
+      {/* ── Search History ───────────────────────────────── */}
+      {showHistory && history.length > 0 && (
+        <Card title="🕐 Match History" subtitle={`${history.length} recent searches`}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {matchHistory.map((h, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '8px 12px', borderRadius: '7px', background: 'rgba(0,0,0,0.1)' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>
-                  {h.asset.bedrooms}BR {h.asset.type} · {h.asset.location} · {parseInt(h.asset.price).toLocaleString()} EGP
-                </span>
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                  <span style={{ color: 'var(--brand-green)', fontWeight: 700 }}>{h.count} matches</span>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{h.source}</span>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{h.time.toLocaleTimeString()}</span>
+            {history.map((h, i) => (
+              <div key={i} onClick={() => { setResult(h); setShowHistory(false); }}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '10px 14px', borderRadius: '8px', cursor: 'pointer',
+                  background: 'rgba(0,0,0,0.15)', border: '1px solid var(--border)',
+                  transition: 'border-color 0.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--brand-teal)'}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}
+              >
+                <div>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {h.assetSnap.bedrooms}BR {h.assetSnap.type} · {h.assetSnap.location} · {parseInt(h.assetSnap.price).toLocaleString()} EGP
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    {h.searchedAt.toLocaleString()} · {h.matches.length} matches · {h.source}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>
+                    🔥 {h.matches.filter(m => m.recommendation === 'hot').length}
+                  </span>
+                  <span style={{ padding: '3px 8px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, background: 'rgba(245,158,11,0.1)', color: '#f59e0b' }}>
+                    ⚡ {h.matches.filter(m => m.recommendation === 'warm').length}
+                  </span>
                 </div>
               </div>
             ))}
           </div>
         </Card>
       )}
-=======
-    try {
-      const res = await fetch('/api/public/match', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          asset_location: asset.location,
-          asset_type:     asset.type,
-          asset_purpose:  asset.purpose,
-          asset_price:    parseInt(asset.price),
-          asset_bedrooms: parseInt(asset.bedrooms),
-        }),
-      })
-      const data = await res.json()
-      const mr: MatchResult = {
-        matches_found:   data.matches_found || data.count || 0,
-        top_match_score: data.top_match_score || data.best_score || 0,
-        location:        asset.location,
-        match_details:   data.matches || data.results || [],
-        avg_match_score: data.avg_score || 0,
-        message:         data.message,
-      }
-      setResult(mr)
-      setMatchHistory(prev => [{ asset: { ...asset }, result: mr, time: new Date() }, ...prev.slice(0, 9)])
-    } catch {
-      const names = ['Ahmed Hassan','Sara Mohamed','Khaled Ali','Fatima Ibrahim','Omar Sayed','Nour Khalid','Hassan Ali','Amal Fathy']
-      const mockResult: MatchResult = {
-        matches_found:   Math.floor(Math.random() * 60) + 15,
-        top_match_score: 0.78 + Math.random() * 0.2,
-        location:        asset.location,
-        avg_match_score: 0.65 + Math.random() * 0.2,
-        match_details:   Array.from({ length: 8 }, (_, i) => ({
-          id:          i + 1,
-          buyer_name:  names[i % names.length],
-          buyer_phone: `+2010${Math.floor(10000000 + Math.random() * 90000000)}`,
-          score:       (0.95 - i * 0.04).toFixed(2),
-          location:    asset.location,
-          budget:      parseInt(asset.price) * (0.88 + i * 0.04),
-          bedrooms:    parseInt(asset.bedrooms),
-          type:        asset.type,
-        })),
-        message: 'Demo results — connect to live API for real buyer data',
-      }
-      setResult(mockResult)
-      setMatchHistory(prev => [{ asset: { ...asset }, result: mockResult, time: new Date() }, ...prev.slice(0, 9)])
-    } finally {
-      setMatchLoading(false)
-    }
-  }
-
-  const exportCSV = () => {
-    if (!result?.match_details?.length) return
-    const headers = ['Rank','Name','Phone','Score','Budget (EGP)','Bedrooms','Type']
-    const rows = result.match_details.map((m: any, i: number) => [
-      i + 1,
-      m.buyer_name || 'Anonymous',
-      m.buyer_phone || '',
-      `${(parseFloat(m.score || 0) * 100).toFixed(0)}%`,
-      m.budget ? Math.round(m.budget).toLocaleString() : '',
-      m.bedrooms || '',
-      m.type || '',
-    ])
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href = url; a.download = `match_results_${asset.location.replace(/\s+/g,'_')}.csv`
-    a.click(); URL.revokeObjectURL(url)
-  }
-
-  const formatPrice = (p: number) => {
-    if (p >= 1000000) return `${(p / 1000000).toFixed(1)}M EGP`
-    if (p >= 1000)    return `${(p / 1000).toFixed(0)}K EGP`
-    return `${p.toFixed(0)} EGP`
-  }
-
-  const getScoreColor = (score: number) =>
-    score >= 0.85 ? 'var(--brand-green)' : score >= 0.70 ? 'var(--brand-gold)' : 'var(--brand-red)'
-
-  const getScoreBadge = (score: number) =>
-    score >= 0.85
-      ? <Badge variant="success">Excellent</Badge>
-      : score >= 0.70
-      ? <Badge variant="warning">Good</Badge>
-      : <Badge variant="danger">Moderate</Badge>
-
-  const initials = (name: string) =>
-    name.split(' ').map(w => w[0]).join('').toUpperCase().substring(0, 2)
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }} className="page-container">
-      <div>
-        <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px', letterSpacing: '-0.02em' }}>
-          Property Matches
-        </h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-          Match your property against the demand database to find qualified buyers
-        </p>
-      </div>
-
-      <div className="grid grid-cols-3 stagger" style={{ gap: '16px' }}>
-        <StatCard title="Total Matches" value={summary?.total_matches || 0}   icon="🎯" color="var(--brand-teal)"   loading={loading} />
-        <StatCard title="Match Rate"    value="78%"  subtitle="Across all assets"     icon="📊" color="var(--brand-green)"  loading={loading} />
-        <StatCard title="My Searches"   value={matchHistory.length} subtitle="This session" icon="🔍" color="var(--brand-purple)" loading={loading} />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '20px' }}>
-
-        {/* ── Match Form ──────────────────────────────────── */}
-        <Card title="Asset Matcher" subtitle="Enter property details to find buyers">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <FormField label="Location">
-              <select value={asset.location} onChange={e => setAsset(p => ({ ...p, location: e.target.value }))}>
-                {topLocations.map((l: any) => <option key={l.name} value={l.name}>{l.name}</option>)}
-                <option value="Zamalek">Zamalek</option>
-                <option value="Maadi">Maadi</option>
-                <option value="Nasr City">Nasr City</option>
-              </select>
-            </FormField>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <FormField label="Property Type">
-                <select value={asset.type} onChange={e => setAsset(p => ({ ...p, type: e.target.value }))}>
-                  <option value="apartment">Apartment</option>
-                  <option value="villa">Villa</option>
-                  <option value="studio">Studio</option>
-                  <option value="townhouse">Townhouse</option>
-                  <option value="duplex">Duplex</option>
-                  <option value="penthouse">Penthouse</option>
-                  <option value="chalet">Chalet</option>
-                </select>
-              </FormField>
-              <FormField label="Purpose">
-                <select value={asset.purpose} onChange={e => setAsset(p => ({ ...p, purpose: e.target.value }))}>
-                  <option value="sale">For Sale</option>
-                  <option value="rent">For Rent</option>
-                </select>
-              </FormField>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <FormField label="Bedrooms">
-                <select value={asset.bedrooms} onChange={e => setAsset(p => ({ ...p, bedrooms: e.target.value }))}>
-                  {['1','2','3','4','5'].map(n => <option key={n} value={n}>{n} Bedroom{n !== '1' ? 's' : ''}</option>)}
-                </select>
-              </FormField>
-              <FormField label="Price (EGP)">
-                <input
-                  type="number"
-                  value={asset.price}
-                  onChange={e => setAsset(p => ({ ...p, price: e.target.value }))}
-                  placeholder="5,500,000"
-                />
-              </FormField>
-            </div>
-
-            {/* Summary preview */}
-            <div style={{
-              padding: '10px 14px',
-              borderRadius: '8px',
-              background: 'rgba(0,0,0,0.2)',
-              border: '1px solid var(--border)',
-              fontSize: '0.78rem',
-              color: 'var(--text-muted)',
-              lineHeight: 1.7,
-            }}>
-              Looking for buyers of a{' '}
-              <strong style={{ color: 'var(--brand-teal)' }}>{asset.bedrooms}BR {asset.type}</strong>
-              {' '}for{' '}
-              <strong style={{ color: asset.purpose === 'sale' ? 'var(--brand-green)' : 'var(--brand-gold)' }}>{asset.purpose}</strong>
-              {' '}in{' '}
-              <strong style={{ color: 'var(--brand-purple)' }}>{asset.location}</strong>
-              {' '}at{' '}
-              <strong style={{ color: 'var(--brand-gold)' }}>{formatPrice(parseInt(asset.price) || 0)}</strong>
-            </div>
-
-            <button
-              onClick={handleMatch}
-              disabled={matchLoading}
-              className="btn btn-primary"
-              style={{
-                width: '100%',
-                padding: '12px',
-                fontSize: '0.9rem',
-                justifyContent: 'center',
-                opacity: matchLoading ? 0.7 : 1,
-                cursor: matchLoading ? 'not-allowed' : 'pointer',
-              }}
-            >
-              <span style={{ animation: matchLoading ? 'spin 0.8s linear infinite' : 'none', display: 'inline-block' }}>
-                {matchLoading ? '⟳' : '🎯'}
-              </span>
-              {matchLoading ? 'Matching buyers…' : 'Find Matching Buyers'}
-            </button>
-          </div>
-        </Card>
-
-        {/* ── Results panel ────────────────────────────────── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {result ? (
-            <>
-              {/* Score summary */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                <ScoreStat label="Matches Found"   value={result.matches_found}  color="var(--brand-teal)" />
-                <ScoreStat label="Top Score"        value={`${(result.top_match_score * 100).toFixed(0)}%`}                    color={getScoreColor(result.top_match_score)} />
-                <ScoreStat label="Avg Score"        value={result.avg_match_score ? `${(result.avg_match_score * 100).toFixed(0)}%` : '—'} color="var(--brand-purple)" />
-              </div>
-
-              {/* Buyers list */}
-              <Card
-                title="Matched Buyers"
-                subtitle={`${result.matches_found} qualified buyers found`}
-                actions={
-                  result.match_details?.length
-                    ? <button onClick={exportCSV} className="btn btn-ghost" style={{ fontSize: '0.75rem', padding: '5px 12px' }}>
-                        ⬇ Export CSV
-                      </button>
-                    : undefined
-                }
-              >
-                {result.message && (
-                  <div style={{ padding: '8px 12px', background: 'rgba(245,158,11,0.08)', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--brand-gold)', marginBottom: '12px', border: '1px solid rgba(245,158,11,0.2)' }}>
-                    ℹ️ {result.message}
-                  </div>
-                )}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: 360, overflowY: 'auto' }}>
-                  {(result.match_details || []).map((match: any, i: number) => {
-                    const score   = parseFloat(match.score || 0)
-                    const bgColor = AVATAR_COLORS[i % AVATAR_COLORS.length]
-                    const name    = match.buyer_name || 'Anonymous Buyer'
-                    return (
-                      <div key={i} className="fade-in" style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '12px',
-                        padding: '10px 12px',
-                        borderRadius: '10px',
-                        background: i === 0 ? 'rgba(16,185,129,0.07)' : 'rgba(0,0,0,0.2)',
-                        border: i === 0 ? '1px solid rgba(16,185,129,0.25)' : '1px solid var(--border)',
-                        animationDelay: `${i * 40}ms`,
-                      }}>
-                        {/* Avatar */}
-                        <div style={{
-                          width: 36,
-                          height: 36,
-                          borderRadius: '10px',
-                          background: bgColor,
-                          color: 'white',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '0.72rem',
-                          fontWeight: 800,
-                          flexShrink: 0,
-                          letterSpacing: '-0.02em',
-                        }}>{initials(name)}</div>
-
-                        {/* Info */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {name}
-                            {i === 0 && <span style={{ marginLeft: 6, fontSize: '0.65rem', color: 'var(--brand-green)', background: 'rgba(16,185,129,0.15)', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>BEST</span>}
-                          </div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            {match.buyer_phone && <span>{match.buyer_phone} · </span>}
-                            {match.budget ? formatPrice(match.budget) : '—'}
-                            {match.bedrooms && ` · ${match.bedrooms}BR`}
-                            {match.type && ` · ${match.type}`}
-                          </div>
-                        </div>
-
-                        {/* Score */}
-                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                          <div style={{
-                            width: 42,
-                            height: 42,
-                            borderRadius: '50%',
-                            background: `conic-gradient(${getScoreColor(score)} 0% ${(score * 100).toFixed(0)}%, var(--bg-input) 0%)`,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '0.7rem',
-                            fontWeight: 800,
-                            color: getScoreColor(score),
-                            position: 'relative',
-                          }}>
-                            <div style={{ position: 'absolute', width: 30, height: 30, borderRadius: '50%', background: 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 800 }}>
-                              {(score * 100).toFixed(0)}%
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                  {(result.match_details || []).length === 0 && (
-                    <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-                      {result.matches_found} matches found — no detailed data available.
-                    </div>
-                  )}
-                </div>
-              </Card>
-            </>
-          ) : (
-            <div style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '60px 20px',
-              background: 'var(--bg-card)',
-              borderRadius: '12px',
-              border: '1px solid var(--border)',
-              textAlign: 'center',
-              minHeight: 250,
-            }}>
-              <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🎯</div>
-              <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>Ready to Match</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.825rem', maxWidth: 240 }}>
-                Fill in your property details and click "Find Matching Buyers"
-              </div>
-            </div>
-          )}
-
-          {/* Search History */}
-          {matchHistory.length > 0 && (
-            <Card title="Recent Searches" subtitle="Click to reload previous results">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: 200, overflowY: 'auto' }}>
-                {matchHistory.map((h, i) => (
-                  <div
-                    key={i}
-                    onClick={() => { setAsset(h.asset); setResult(h.result) }}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '8px 12px',
-                      borderRadius: '8px',
-                      background: 'rgba(0,0,0,0.2)',
-                      cursor: 'pointer',
-                      transition: 'background 0.15s',
-                      border: '1px solid transparent',
-                    }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(14,165,233,0.08)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(14,165,233,0.2)' }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,0,0,0.2)'; (e.currentTarget as HTMLElement).style.borderColor = 'transparent' }}
-                  >
-                    <div style={{ fontSize: '0.8rem' }}>
-                      <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{h.asset.bedrooms}BR {h.asset.type}</span>
-                      <span style={{ color: 'var(--text-muted)' }}> · {h.asset.location}</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brand-teal)' }}>
-                        {h.result.matches_found} matches
-                      </span>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                        {h.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
-        </div>
-      </div>
     </div>
   )
 }
 
-function FormField({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '5px', display: 'block', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-        {label}
-      </label>
-      {children}
-    </div>
-  )
+/* ── Inline style helpers ─────────────────────────────────────── */
+const labelStyle: React.CSSProperties = {
+  fontSize: '0.68rem', color: 'var(--text-muted)', display: 'block',
+  marginBottom: '4px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em',
 }
-
-function ScoreStat({ label, value, color }: { label: string; value: any; color: string }) {
-  return (
-    <div style={{ padding: '14px', borderRadius: '10px', background: 'var(--bg-card)', border: '1px solid var(--border)', textAlign: 'center' }}>
-      <div style={{ fontSize: '1.6rem', fontWeight: 800, color, letterSpacing: '-0.03em' }}>{value}</div>
-      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '3px', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>{label}</div>
->>>>>>> origin/main
-    </div>
-  )
-}
+const selectStyle: React.CSSProperties = { width: '100%' }
+const inputStyle:  React.CSSProperties = { width: '100%' }

@@ -467,9 +467,20 @@ export function updateLocationStats(classification) {
   const location = canonicalizeLocation(rawLoc)
   if (!location) return
 
-  const price = typeof extracted.price === 'number'
-    ? extracted.price
-    : parseFloat(String(extracted.price || '0').replace(/[^0-9.]/g, '')) || 0
+  // Parse price safely — handle "14K/yr", "1.5M", "1,500,000 EGP" etc.
+  let price = 0
+  if (typeof extracted.price === 'number') {
+    price = extracted.price
+  } else {
+    const ps = String(extracted.price || extracted.budget_max || '0')
+    const lower = ps.toLowerCase()
+    const num = parseFloat(ps.replace(/[^0-9.]/g, '')) || 0
+    if (lower.includes('m')) price = num * 1_000_000
+    else if (lower.includes('k')) price = num * 1_000
+    else price = num
+  }
+  // Sanity cap: Egyptian RE prices are typically 50K–200M EGP
+  if (price < 1_000 || price > 500_000_000) price = 0
 
   if (label === 'supply') {
     _incrLocationSupply.run({ location, price })

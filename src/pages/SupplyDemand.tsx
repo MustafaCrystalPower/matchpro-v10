@@ -128,11 +128,7 @@ export default function SupplyDemand({ apiData, loading }: Props) {
         params.set('purpose', purpose)
         if (propType) params.set('type', propType)
       }
-<<<<<<< HEAD
       const url = `/proxy/api/public/${activeTab}?${params}`
-=======
-      const url = `/api/public/${activeTab}?${params}`
->>>>>>> origin/main
       const res  = await fetch(url)
       const data = await res.json()
       setListData(data.data || [])
