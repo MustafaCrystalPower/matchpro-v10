@@ -1,0 +1,23 @@
+{
+  "name": "MatchPro Intelligence",
+  "short_name": "MatchPro",
+  "description": "Real Estate Demand Intelligence — Crystal Power Investments",
+  "start_url": "/matchpro/dashboard",
+  "scope": "/matchpro/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0a0e27",
+  "theme_color": "#FFD700",
+  "categories": ["business", "productivity", "finance"],
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Hot Demand", "url": "/matchpro/dashboard#demand", "description": "Live buyer demand" },
+    { "name": "Heat Map", "url": "/matchpro/dashboard#heatmap", "description": "Area intelligence" },
+    { "name": "Reports", "url": "/matchpro/dashboard#reports", "description": "Download Excel reports" }
+  ]
+}

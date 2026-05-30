@@ -1,0 +1,1166 @@
+/**
+ * MatchPro Unified Intelligence Engine v10.0.0
+ * Crystal Power Investments — Mo'men Hisham Maisara
+ * Single canonical source — replaces v2/v3/v4/v5/v6/v7/v8/final/portal/standalone/intelligence/feedback
+ *
+ * Port: 3070
+ * v10 Enhancements: rate limiting, security headers, access logging, /api/stats,
+ *                   WhatsApp webhook integration, proper JSON health, DB schema hardening
+ */
+const express = require('express');
+const cors = require('cors');
+const compression = require('compression');
+const path = require('path');
+const fs = require('fs');
+const Database = require('better-sqlite3');
+const cron = require('node-cron');
+const { execFile } = require('child_process');
+const discoverHandler = require('./discover');
+const https = require('https');
+
+const PORT = process.env.PORT || 3070;
+const ROOT = path.resolve(__dirname, '..');
+const DB_PATH = path.join(ROOT, 'data', 'matchpro.db');
+const REPORTS_DIR = path.join(ROOT, 'reports');
+const LOGS_DIR = path.join(ROOT, 'logs');
+const CLIENT_DIR = path.join(ROOT, 'client');
+const ACCESS_LOG = path.join(LOGS_DIR, 'access.log');
+
+[REPORTS_DIR, LOGS_DIR].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
+
+const app = express();
+
+// ─── SECURITY HEADERS ────────────────────────
+app.use((req, res, next) => {
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('X-Frame-Options', 'SAMEORIGIN');
+  res.set('X-XSS-Protection', '1; mode=block');
+  res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.set('X-Powered-By', 'MatchPro/10.0.0');
+  next();
+});
+
+// ─── RATE LIMITING (simple in-memory: 100 req/min per IP) ────────────────────
+const rateLimitStore = new Map(); // ip → { count, resetAt }
+const RATE_LIMIT = 100;
+const RATE_WINDOW_MS = 60 * 1000;
+
+app.use((req, res, next) => {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  let entry = rateLimitStore.get(ip);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + RATE_WINDOW_MS };
+    rateLimitStore.set(ip, entry);
+  }
+  entry.count++;
+  res.set('X-RateLimit-Limit', String(RATE_LIMIT));
+  res.set('X-RateLimit-Remaining', String(Math.max(0, RATE_LIMIT - entry.count)));
+  if (entry.count > RATE_LIMIT) {
+    return res.status(429).json({ error: 'Too Many Requests', retryAfter: Math.ceil((entry.resetAt - now) / 1000) });
+  }
+  next();
+});
+
+// Clean up rate limit store every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitStore.entries()) {
+    if (now > entry.resetAt) rateLimitStore.delete(ip);
+  }
+}, 5 * 60 * 1000);
+
+// ─── ACCESS LOGGING ──────────────────────────
+const accessLogStream = fs.createWriteStream(ACCESS_LOG, { flags: 'a' });
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || '-';
+    const line = `${new Date().toISOString()} ${ip} ${req.method} ${req.path} ${res.statusCode} ${ms}ms\n`;
+    accessLogStream.write(line);
+    // Also log to api_logs table async (best effort)
+    try {
+      const d = db(true);
+      d.prepare('INSERT INTO api_logs (method, path, status, duration_ms, ip) VALUES (?,?,?,?,?)').run(req.method, req.path, res.statusCode, ms, ip);
+      d.close();
+    } catch (_) {}
+  });
+  next();
+});
+
+app.use(cors());
+app.use(compression());
+app.use(express.json({ limit: '10mb' }));
+
+// ─── JWT AUTH ────────────────────────────────
+const crypto = require('crypto');
+const JWT_SECRET = process.env.JWT_SECRET || 'cpi-matchpro-secret-2026';
+function hashPw(p) { return crypto.createHash('sha256').update(p).digest('hex'); }
+const ADMIN_USERS = {
+  mmaisara:  { password: hashPw('CPI-Admin-2026!'), name: "Mo'men Maisara", role: 'admin' },
+  admin:     { password: hashPw('CPI-Admin-2026!'), name: "Admin", role: 'admin' },
+};
+function makeToken(payload) {
+  const header = Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url');
+  const body   = Buffer.from(JSON.stringify({...payload, iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+604800})).toString('base64url');
+  const sig    = crypto.createHmac('sha256', JWT_SECRET).update(header+'.'+body).digest('base64url');
+  return header+'.'+body+'.'+sig;
+}
+function verifyToken(token) {
+  try {
+    const [h,b,s] = token.split('.');
+    const expected = crypto.createHmac('sha256', JWT_SECRET).update(h+'.'+b).digest('base64url');
+    if (s !== expected) return null;
+    const payload = JSON.parse(Buffer.from(b,'base64url').toString());
+    if (payload.exp < Math.floor(Date.now()/1000)) return null;
+    return payload;
+  } catch { return null; }
+}
+function auth(req,res,next) {
+  const t = (req.headers.authorization||'').replace('Bearer ','') || req.query.token;
+  if (!t) return res.status(401).json({error:'Unauthorized'});
+  const u = verifyToken(t);
+  if (!u) return res.status(401).json({error:'Invalid token'});
+  req.user = u; next();
+}
+
+app.post('/api/auth/login', (req,res) => {
+  const { username, password } = req.body;
+  // Support email login: extract part before @
+  const key = (username||'').toLowerCase().split('@')[0];
+  const u = ADMIN_USERS[key] || ADMIN_USERS[(username||'').toLowerCase()];
+  if (u && u.password === hashPw(password||'')) {
+    const token = makeToken({ username: key, role: u.role, name: u.name });
+    return res.json({ token, user: { name: u.name, role: u.role, username: key } });
+  }
+  // Check app_users table
+  try {
+    const d2 = db(false);
+    const dbUser = d2.prepare("SELECT * FROM app_users WHERE (username=? OR email=?) AND active=1").get(key, (username||'').toLowerCase());
+    d2.close();
+    if (dbUser && dbUser.password_hash === hashPw(password||'')) {
+      const token = makeToken({ username: dbUser.username, role: dbUser.role, name: dbUser.name, plan: dbUser.plan });
+      return res.json({ token, user: { name: dbUser.name, role: dbUser.role, username: dbUser.username, plan: dbUser.plan } });
+    }
+  } catch(_) {}
+  res.status(401).json({ error: 'Invalid credentials' });
+});
+
+
+app.use('/reports', express.static(REPORTS_DIR));
+app.use('/', express.static(CLIENT_DIR));
+
+// ─── ME ENDPOINT ──────────────────────────────
+app.get('/api/me', auth, (req, res) => {
+  res.json({ ok: true, user: req.user });
+});
+
+// ─── PWA ROUTES ─────────────────────────────
+app.get(['/dashboard','/dashboard/'], (req,res) => res.sendFile(path.join(CLIENT_DIR,'public','dashboard.html')));
+app.get('/asset-intelligence', (req,res) => res.sendFile(path.join(CLIENT_DIR,'public','asset-intelligence.html')));
+app.get('/manifest.json', (req,res) => res.sendFile(path.join(CLIENT_DIR,'public','manifest.json')));
+app.get('/sw.js', (req,res) => { res.set('Service-Worker-Allowed','/matchpro/'); res.sendFile(path.join(CLIENT_DIR,'public','sw.js')); });
+app.get('/icon-192.png', (req,res) => res.sendFile(path.join(CLIENT_DIR,'public','icon-192.png')));
+app.get('/icon-512.png', (req,res) => res.sendFile(path.join(CLIENT_DIR,'public','icon-512.png')));
+
+// ─── DB HELPER ──────────────────────────────
+function db(rw=false) {
+  const d = new Database(DB_PATH, rw ? {} : { readonly: true });
+  d.pragma('journal_mode = WAL');
+  return d;
+}
+
+// ─── DB SCHEMA HARDENING ────────────────────
+function ensureSchema() {
+  const d = db(true);
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS webhook_leads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone TEXT,
+      message TEXT,
+      category TEXT,
+      score INTEGER,
+      matched_supply_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS api_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      method TEXT,
+      path TEXT,
+      status INTEGER,
+      duration_ms INTEGER,
+      ip TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  d.close();
+  console.log('✅ DB schema hardened');
+}
+ensureSchema();
+
+// ─── HEALTH ─────────────────────────────────
+app.get('/health', (req,res) => {
+  try {
+    const d = db();
+    const stats = {
+      messages: d.prepare('SELECT COUNT(*) c FROM messages').get().c,
+      demand: d.prepare('SELECT COUNT(*) c FROM demand').get().c,
+      supply: d.prepare('SELECT COUNT(*) c FROM supply').get().c,
+      matches: d.prepare('SELECT COUNT(*) c FROM matches').get().c,
+      hot_leads: d.prepare("SELECT COUNT(*) c FROM v7_lead_quality WHERE is_hot_lead=1").get().c,
+      last_demand: d.prepare('SELECT MAX(created_at) m FROM demand').get().m,
+      last_match: d.prepare('SELECT MAX(created_at) m FROM matches').get().m
+    };
+    d.close();
+    res.json({
+      status: 'ok',
+      version: '11.0.0',
+      port: PORT,
+      uptime: process.uptime(),
+      uptime_human: formatUptime(process.uptime()),
+      timestamp: new Date().toISOString(),
+      dbSize: (fs.statSync(DB_PATH).size / 1048576).toFixed(1) + "MB",
+      stats
+    });
+  } catch (e) { res.status(500).json({ status: 'error', version: '11.0.0', error: e.message }); }
+});
+
+function formatUptime(s) {
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = Math.floor(s%60);
+  return `${h}h ${m}m ${sec}s`;
+}
+
+// ─── API STATS ──────────────────────────────
+app.get('/api/stats', (req,res) => {
+  try {
+    const d = db();
+    const messages = d.prepare('SELECT COUNT(*) c FROM messages').get().c;
+    const supply   = d.prepare('SELECT COUNT(*) c FROM supply').get().c;
+    const demand   = d.prepare('SELECT COUNT(*) c FROM demand').get().c;
+    const matches  = d.prepare('SELECT COUNT(*) c FROM matches').get().c;
+    const hot_leads = d.prepare("SELECT COUNT(*) c FROM v7_lead_quality WHERE is_hot_lead=1").get().c;
+    const webhook_leads = d.prepare("SELECT COUNT(*) c FROM webhook_leads").get().c;
+    const assets   = d.prepare("SELECT COUNT(*) c FROM assets WHERE status='available'").get().c;
+    const today_demand = d.prepare("SELECT COUNT(*) c FROM demand WHERE created_at >= date('now')").get().c;
+    const today_matches = d.prepare("SELECT COUNT(*) c FROM matches WHERE created_at >= date('now')").get().c;
+    d.close();
+    res.json({
+      status: 'ok',
+      version: '11.0.0',
+      timestamp: new Date().toISOString(),
+      dbSize: (fs.statSync(DB_PATH).size / 1048576).toFixed(1) + "MB",
+      totals: { messages, supply, demand, matches, hot_leads, webhook_leads, assets },
+      today: { demand: today_demand, matches: today_matches }
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// ─── DASHBOARD (full data for frontend SPA) ─────────────────────────
+app.get('/api/dashboard', auth, (req, res) => {
+  try {
+    const d2 = db();
+    const totalMessages = d2.prepare('SELECT COUNT(*) c FROM messages').get().c;
+    const totalSupply = d2.prepare('SELECT COUNT(*) c FROM supply').get().c;
+    const totalDemand = d2.prepare('SELECT COUNT(*) c FROM demand').get().c;
+    const totalMatches = d2.prepare('SELECT COUNT(*) c FROM matches').get().c;
+    const totalBrokers = d2.prepare('SELECT COUNT(*) c FROM brokers').get().c;
+    const totalAssets = d2.prepare("SELECT COUNT(*) c FROM assets").get().c;
+    const avgScore = d2.prepare("SELECT AVG(CAST(match_score AS REAL)) a FROM matches WHERE match_score IS NOT NULL").get().a || 0;
+    const highMatches = d2.prepare("SELECT COUNT(*) c FROM matches WHERE CAST(match_score AS REAL) >= 85").get().c;
+
+    // Quality metrics
+    const demandTotal = totalDemand;
+    const demandWithLocation = d2.prepare("SELECT COUNT(*) c FROM demand WHERE location IS NOT NULL AND location != ''").get().c;
+    const demandWithType = d2.prepare("SELECT COUNT(*) c FROM demand WHERE property_type IS NOT NULL AND property_type != ''").get().c;
+    const demandWithPurpose = d2.prepare("SELECT COUNT(*) c FROM demand WHERE purpose IS NOT NULL AND purpose != ''").get().c;
+    const supplyTotal = totalSupply;
+    const supplyWithLocation = d2.prepare("SELECT COUNT(*) c FROM supply WHERE location IS NOT NULL AND location != ''").get().c;
+
+    // Message volume (14 days)
+    const msgVolume = d2.prepare("SELECT date(created_at) day, COUNT(*) count FROM messages WHERE created_at >= date('now','-14 days') GROUP BY date(created_at) ORDER BY day").all();
+
+    // Demand by location (top 10)
+    const demandByLocation = d2.prepare("SELECT location, COUNT(*) count FROM demand WHERE location IS NOT NULL AND location != '' GROUP BY location ORDER BY count DESC LIMIT 10").all();
+
+    // Demand by type
+    const demandByType = d2.prepare("SELECT property_type as type, COUNT(*) count FROM demand WHERE property_type IS NOT NULL GROUP BY property_type ORDER BY count DESC LIMIT 8").all();
+
+    // Demand by purpose
+    const demandByPurpose = d2.prepare("SELECT purpose, COUNT(*) count FROM demand WHERE purpose IS NOT NULL AND purpose != '' GROUP BY purpose ORDER BY count DESC").all();
+
+    d2.close();
+    res.json({
+      stats: { totalMessages, totalSupply, totalDemand, totalMatches, totalBrokers, totalAssets, avgScore, highMatches },
+      qualityMetrics: { demandTotal, demandWithLocation, demandWithType, demandWithPurpose, supplyTotal, supplyWithLocation },
+      msgVolume,
+      demandByLocation,
+      demandByType,
+      demandByPurpose
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── VERIFIED STATS ─────────────────────────
+app.get('/api/verified-stats', (req,res) => {
+  try {
+    const d = db();
+    const v = d.prepare("SELECT COUNT(*) c FROM demand WHERE verified=1").get().c;
+    const total = d.prepare("SELECT COUNT(*) c FROM demand").get().c;
+    const byCluster = d.prepare("SELECT location_cluster cluster, COUNT(*) cnt FROM demand WHERE verified=1 GROUP BY location_cluster ORDER BY cnt DESC").all();
+    d.close();
+    res.json({ verified: v, total, pct: total?((v/total*100).toFixed(1)):0, byCluster });
+  } catch(e) { res.status(500).json({error:e.message}); }
+});
+
+// ─── DEMAND ─────────────────────────────────
+app.get('/api/demand', (req,res) => {
+  const limit = Math.min(parseInt(req.query.limit)||100, 500);
+  const days = parseInt(req.query.days)||7;
+  const d = db();
+  const rows = d.prepare(`SELECT * FROM demand WHERE created_at > datetime('now','-${days} days') ORDER BY created_at DESC LIMIT ?`).all(limit);
+  d.close();
+  res.json({ count: rows.length, rows });
+});
+
+// ─── SUPPLY ─────────────────────────────────
+app.get('/api/supply', (req,res) => {
+  const limit = Math.min(parseInt(req.query.limit)||100, 500);
+  const d = db();
+  const rows = d.prepare(`SELECT * FROM supply ORDER BY created_at DESC LIMIT ?`).all(limit);
+  d.close();
+  res.json({ count: rows.length, rows });
+});
+
+// ─── MATCHES ────────────────────────────────
+app.get('/api/matches', (req,res) => {
+  const limit = Math.min(parseInt(req.query.limit)||100, 500);
+  const d = db();
+  const rows = d.prepare(`SELECT * FROM matches ORDER BY match_score DESC, created_at DESC LIMIT ?`).all(limit);
+  d.close();
+  res.json({ count: rows.length, rows });
+});
+
+// ─── MATCH NOW ──────────────────────────────
+app.post('/api/match/run', (req,res) => {
+  // Fire-and-forget match cycle
+  execFile('node', [path.join(ROOT,'automations','auto_report_4h.js')], (err, stdout, stderr) => {
+    if (err) console.error('match/run error:', err.message);
+    else console.log('match/run done:', stdout.slice(0,200));
+  });
+  res.json({ ok: true, message: 'Match cycle triggered', timestamp: new Date().toISOString() });
+});
+
+// ─── HEAT MAP ───────────────────────────────
+app.get('/api/heat-map', (req,res) => {
+  const d = db();
+  const heat = d.prepare(`SELECT COALESCE(area,location) area, COUNT(*) cnt,
+                                 AVG((COALESCE(price_min,0)+COALESCE(price_max,0))/2) avg_budget
+                          FROM demand WHERE COALESCE(area,location) != ''
+                          GROUP BY COALESCE(area,location) ORDER BY cnt DESC LIMIT 30`).all();
+  d.close();
+  res.json({ count: heat.length, rows: heat });
+});
+
+// ─── DAILY PIPELINE DATA ─────────────────────
+app.get('/api/pipeline/daily', (req,res) => {
+  try {
+    const d = db();
+    const rows = d.prepare(`
+      SELECT date(created_at) day, COUNT(*) cnt
+      FROM demand
+      WHERE created_at >= datetime('now', '-7 days')
+      GROUP BY date(created_at)
+      ORDER BY day ASC
+    `).all();
+    d.close();
+    res.json({ rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── WEBHOOK LEADS ───────────────────────────
+app.get('/api/webhook-leads', (req,res) => {
+  try {
+    const d = db();
+    const rows = d.prepare('SELECT * FROM webhook_leads ORDER BY created_at DESC LIMIT 20').all();
+    d.close();
+    res.json({ count: rows.length, rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── ASSETS ─────────────────────────────────
+app.get('/api/assets', (req,res) => {
+  try {
+    const d = db();
+    const assets = d.prepare("SELECT * FROM assets WHERE status='available' ORDER BY created_at DESC").all();
+    // For each asset, count matched demands
+    const result = assets.map(a => {
+      const lead_count = d.prepare('SELECT COUNT(*) c FROM asset_matches WHERE asset_id=?').get(a.id).c;
+      return { ...a, lead_count };
+    });
+    d.close();
+    res.json({ count: result.length, assets: result });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── ASSET MATCHES ───────────────────────────
+app.get('/api/assets/:code/matches', (req,res) => {
+  try {
+    const code = req.params.code;
+    const d = db();
+    const asset = d.prepare('SELECT * FROM assets WHERE asset_code=?').get(code);
+    if (!asset) { d.close(); return res.status(404).json({ error: 'Asset not found' }); }
+    const matches = d.prepare('SELECT * FROM asset_matches WHERE asset_id=? ORDER BY match_score DESC LIMIT 50').all(asset.id);
+    d.close();
+    res.setHeader('Content-Disposition', `attachment; filename="matches_${code}.json"`);
+    res.json({ asset_code: code, asset, matches, exported_at: new Date().toISOString() });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── REPORTS LIST ───────────────────────────
+app.get('/api/reports', (req,res) => {
+  const files = fs.readdirSync(REPORTS_DIR).filter(f => f.endsWith('.xlsx'))
+                  .sort((a,b) => fs.statSync(path.join(REPORTS_DIR,b)).mtimeMs - fs.statSync(path.join(REPORTS_DIR,a)).mtimeMs)
+                  .slice(0, 30)
+                  .map(f => ({ name: f, url: `/reports/${f}`, size: fs.statSync(path.join(REPORTS_DIR,f)).size, mtime: fs.statSync(path.join(REPORTS_DIR,f)).mtime }));
+  res.json({ count: files.length, reports: files });
+});
+
+// ─── REVERSE DISCOVERY ENGINE ───────────────
+app.post('/api/discover', (req, res) => {
+  const d = db(false);
+  discoverHandler(d)(req, res).finally(() => { try { d.close(); } catch(_) {} });
+});
+
+// ─── TRIGGER REPORT NOW ─────────────────────
+app.post('/api/reports/generate', (req,res) => {
+  execFile('node', [path.join(ROOT,'automations','auto_report_4h.js')], (err, stdout, stderr) => {
+    if (err) return res.status(500).json({ error: err.message, stderr });
+    res.json({ ok: true, output: stdout });
+  });
+});
+
+// ─── WHATSAPP WEBHOOK ───────────────────────
+// Receives Green API webhook payloads, categorizes messages, stores leads, triggers matches
+
+/**
+ * Auto-categorize a message text by Arabic+English keywords.
+ * Returns: 'buy' | 'sell' | 'rent' | 'invest' | 'other'
+ */
+function categorizeMessage(text) {
+  if (!text) return 'other';
+  const t = text.toLowerCase();
+  const KEYWORDS = {
+    buy:    ['buy','purchase','شراء','عايز','أبحث','ابحث','محتاج','أريد','اريد','looking for','want to buy','need','للشراء'],
+    sell:   ['sell','for sale','للبيع','بيع','عنده','عندي','متاح','available','listing','معروض'],
+    rent:   ['rent','إيجار','ايجار','for rent','للإيجار','للايجار','lease','تأجير','تاجير'],
+    invest: ['invest','استثمار','عائد','roi','return','investment','portfolio','فرصة','opportunity'],
+  };
+  for (const [cat, words] of Object.entries(KEYWORDS)) {
+    if (words.some(w => t.includes(w))) return cat;
+  }
+  return 'other';
+}
+
+/**
+ * Find best matching supply for an incoming demand signal.
+ * Returns { score, supply } or null.
+ */
+function findBestMatch(category, messageText) {
+  if (category === 'sell') return null; // seller → no demand match needed
+  try {
+    const d = db();
+    const supplies = d.prepare('SELECT * FROM supply ORDER BY created_at DESC LIMIT 200').all();
+    d.close();
+    if (!supplies.length) return null;
+    let best = null, bestScore = 0;
+    for (const s of supplies) {
+      let score = 0;
+      // Simple heuristic scoring
+      if (category === 'buy' && s.purpose && s.purpose.toLowerCase().includes('sale')) score += 40;
+      if (category === 'rent' && s.purpose && s.purpose.toLowerCase().includes('rent')) score += 40;
+      if (category === 'invest') score += 30;
+      // Text overlap
+      const msgWords = (messageText||'').toLowerCase().split(/\s+/).filter(w => w.length > 3);
+      const supplyText = ((s.raw_message||'') + ' ' + (s.location||'')).toLowerCase();
+      const overlap = msgWords.filter(w => supplyText.includes(w)).length;
+      score += Math.min(overlap * 5, 30);
+      if (score > bestScore) { bestScore = score; best = s; }
+    }
+    return bestScore >= 70 ? { score: bestScore, supply: best } : null;
+  } catch(e) {
+    console.error('matchFinder error:', e.message);
+    return null;
+  }
+}
+
+/**
+ * Send WhatsApp notification via Green API
+ */
+function sendWhatsApp(chatId, message) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ chatId, message });
+    const url = 'https://7105.api.greenapi.com/waInstance7105409203/sendMessage/c678c910865246ca90eeb3d16867b5fa12a52bb37b4944db92';
+    const req = https.request(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+    }, res => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => resolve({ status: res.statusCode, body: data }));
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+app.post('/webhook/whatsapp', (req, res) => {
+  // Always respond 200 immediately
+  res.status(200).json({ ok: true });
+
+  // Process asynchronously
+  setImmediate(async () => {
+    try {
+      const payload = req.body;
+      // Green API webhook format
+      const typeWebhook = payload.typeWebhook || '';
+      // Support incomingMessageReceived or incomingMessage
+      if (!['incomingMessageReceived', 'incomingMessage', 'outgoingMessageStatus'].includes(typeWebhook)) {
+        if (typeWebhook) return; // Not a message event
+      }
+
+      const msgData = payload.messageData || payload.body || {};
+      const senderData = payload.senderData || {};
+      const instanceData = payload.instanceData || {};
+
+      // Extract fields
+      const senderPhone = (senderData.sender || senderData.chatId || payload.from || '').replace('@c.us','').replace('@g.us','');
+      const senderName  = senderData.senderName || senderData.pushname || '';
+      const textMsg     = msgData.textMessageData?.textMessage
+                       || msgData.extendedTextMessageData?.text
+                       || msgData.text
+                       || (typeof payload.body === 'string' ? payload.body : '')
+                       || '';
+      const timestamp   = payload.timestamp ? new Date(payload.timestamp * 1000).toISOString() : new Date().toISOString();
+
+      if (!textMsg) return; // No text to process
+
+      const category = categorizeMessage(textMsg);
+      const matchResult = findBestMatch(category, textMsg);
+      const score = matchResult ? matchResult.score : 0;
+      const matchedSupplyId = matchResult ? String(matchResult.supply.id) : null;
+
+      // Store in webhook_leads
+      const d = db(true);
+      d.prepare(`INSERT INTO webhook_leads (phone, message, category, score, matched_supply_id, created_at)
+                 VALUES (?, ?, ?, ?, ?, datetime('now'))`).run(senderPhone, textMsg.slice(0, 1000), category, score, matchedSupplyId);
+
+      // Also store in messages table if not duplicate
+      try {
+        const extId = `webhook_${senderPhone}_${Date.now()}`;
+        d.prepare(`INSERT OR IGNORE INTO messages (external_id, sender_phone, sender_name, body, timestamp, type, source)
+                   VALUES (?, ?, ?, ?, ?, 'whatsapp_webhook', 'webhook')`).run(extId, senderPhone, senderName, textMsg.slice(0,2000), timestamp);
+      } catch(_) {}
+      d.close();
+
+      // Send notification if high-confidence match
+      if (score >= 70 && matchResult) {
+        const supply = matchResult.supply;
+        const notifMsg = `🔔 *MatchPro v10 — Hot Lead Alert*\n\n` +
+          `📱 From: ${senderName || senderPhone}\n` +
+          `📝 Message: ${textMsg.slice(0, 200)}\n` +
+          `🏷️ Category: ${category.toUpperCase()}\n` +
+          `🎯 Match Score: ${score}/100\n\n` +
+          `🏠 *Best Supply Match:*\n` +
+          `• Location: ${supply.location || 'N/A'}\n` +
+          `• Price: ${supply.price || 'N/A'} ${supply.price_unit || 'EGP'}\n` +
+          `• Type: ${supply.property_type || 'N/A'}\n` +
+          `• Contact: ${supply.sender_phone || 'N/A'}\n\n` +
+          `⏰ ${new Date().toISOString()}`;
+        try {
+          await sendWhatsApp('201066505665@c.us', notifMsg);
+          console.log(`✅ Hot lead notification sent for ${senderPhone} (score: ${score})`);
+        } catch(e) {
+          console.error('WhatsApp notify error:', e.message);
+        }
+      }
+
+      console.log(`📱 Webhook: ${senderPhone} | cat:${category} | score:${score} | match:${matchedSupplyId || 'none'}`);
+    } catch(e) {
+      console.error('Webhook processing error:', e.message);
+    }
+  });
+});
+
+// ─── DASHBOARD HTML (fallback) ──────────────
+app.get('/', (req,res) => {
+  if (fs.existsSync(path.join(CLIENT_DIR,'index.html'))) {
+    return res.sendFile(path.join(CLIENT_DIR,'index.html'));
+  }
+  res.send(`<!doctype html><html><head><meta charset="utf-8"><title>MatchPro v10</title>
+  <style>body{font-family:system-ui;background:#0a0e27;color:#fff;padding:40px;max-width:900px;margin:auto}
+  h1{color:#FFD700}a{color:#4FC3F7;text-decoration:none}a:hover{text-decoration:underline}
+  .card{background:#1a1f3a;padding:20px;border-radius:12px;margin:12px 0}
+  .badge{background:#FFD700;color:#0a0e27;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:bold}</style></head><body>
+  <h1>🚀 MatchPro Unified Intelligence <span class="badge">v10.0.0</span></h1>
+  <div class="card"><h3>Quick Links</h3>
+  <ul>
+    <li><a href="/dashboard">📊 Dashboard</a></li>
+    <li><a href="/asset-intelligence">🏠 Asset Intelligence</a></li>
+    <li><a href="/health">/health</a> — JSON status</li>
+    <li><a href="/api/stats">/api/stats</a> — full stats</li>
+    <li><a href="/api/demand">/api/demand</a> — recent demand</li>
+    <li><a href="/api/supply">/api/supply</a> — recent supply</li>
+    <li><a href="/api/matches">/api/matches</a> — top matches</li>
+  </ul></div>
+  <p style="color:#999">Crystal Power Investments — Mo'men Hisham Maisara</p>
+  </body></html>`);
+});
+
+// ─── LOCATION COORDINATES ──────────────────
+const LOCATION_COORDS = {
+  'مدينتي': { lat: 30.1128, lng: 31.6411, label: 'Madinaty' },
+  'Madinaty': { lat: 30.1128, lng: 31.6411, label: 'Madinaty' },
+  'مدينتى': { lat: 30.1128, lng: 31.6411, label: 'Madinaty' },
+  'القاهرة الجديدة': { lat: 30.0271, lng: 31.4961, label: 'New Cairo' },
+  'New Cairo': { lat: 30.0271, lng: 31.4961, label: 'New Cairo' },
+  'الرحاب': { lat: 30.0549, lng: 31.5422, label: 'Al Rehab' },
+  'الشيخ زايد': { lat: 30.0626, lng: 30.9854, label: 'Sheikh Zayed' },
+  'Sheikh Zayed': { lat: 30.0626, lng: 30.9854, label: 'Sheikh Zayed' },
+  '6 أكتوبر': { lat: 29.9418, lng: 30.9458, label: '6 October' },
+  '6 October': { lat: 29.9418, lng: 30.9458, label: '6 October' },
+  'التجمع الخامس': { lat: 30.0131, lng: 31.4716, label: '5th Settlement' },
+  'العاصمة الإدارية': { lat: 30.0131, lng: 31.7269, label: 'New Admin Capital' },
+  'الساحل الشمالي': { lat: 30.9408, lng: 29.2467, label: 'North Coast' },
+  'Noor City': { lat: 30.0900, lng: 31.6200, label: 'Noor City' },
+  'Hyde Park': { lat: 30.0050, lng: 31.4700, label: 'Hyde Park' },
+  'Mivida': { lat: 30.0400, lng: 31.5200, label: 'Mivida' },
+  'mountain view': { lat: 30.0350, lng: 31.5000, label: 'Mountain View' },
+  'مدينة بدر': { lat: 30.1120, lng: 31.7200, label: 'Badr City' },
+  'الشروق': { lat: 30.1450, lng: 31.6100, label: 'Al Shorouk' },
+  'العين السخنة': { lat: 29.5500, lng: 32.3500, label: 'Ain Sokhna' },
+  'Cairo': { lat: 30.0444, lng: 31.2357, label: 'Cairo' },
+  'القاهرة': { lat: 30.0444, lng: 31.2357, label: 'Cairo' },
+  'B6': { lat: 30.1100, lng: 31.6350, label: 'Madinaty B6' },
+  'B7': { lat: 30.1105, lng: 31.6355, label: 'Madinaty B7' },
+  'B8': { lat: 30.1110, lng: 31.6360, label: 'Madinaty B8' },
+  'B10': { lat: 30.1115, lng: 31.6365, label: 'Madinaty B10' },
+  'B11': { lat: 30.1120, lng: 31.6370, label: 'Madinaty B11' },
+  'B12': { lat: 30.1125, lng: 31.6375, label: 'Madinaty B12' },
+  'B14': { lat: 30.1130, lng: 31.6380, label: 'Madinaty B14' },
+  'B15': { lat: 30.1135, lng: 31.6385, label: 'Madinaty B15' },
+  'Privado': { lat: 30.1090, lng: 31.6340, label: 'Privado Madinaty' },
+  'دريملاند': { lat: 29.9850, lng: 30.9800, label: 'Dreamland' },
+  'Dreamland': { lat: 29.9850, lng: 30.9800, label: 'Dreamland' },
+  'الدقي': { lat: 30.0516, lng: 31.2101, label: 'Dokki' },
+  'المهندسين': { lat: 30.0600, lng: 31.2050, label: 'Mohandessin' },
+  'مصر الجديدة': { lat: 30.0900, lng: 31.3300, label: 'Heliopolis' },
+  'الزمالك': { lat: 30.0650, lng: 31.2170, label: 'Zamalek' },
+};
+
+function getCoords(location) {
+  if (!location) return null;
+  // Direct match
+  if (LOCATION_COORDS[location]) return LOCATION_COORDS[location];
+  // Case-insensitive partial match
+  const lc = location.toLowerCase().trim();
+  for (const [key, val] of Object.entries(LOCATION_COORDS)) {
+    if (key.toLowerCase() === lc) return val;
+    if (lc.includes(key.toLowerCase()) || key.toLowerCase().includes(lc)) return val;
+  }
+  return null;
+}
+
+// ─── MATCH SCORING ───────────────────────────
+function normalizeLocationKey(loc) {
+  if (!loc) return null;
+  const map = {
+    'مدينتى':'madinaty','مدينتي':'madinaty','Madinaty':'madinaty','madinaty':'madinaty',
+    'New Cairo':'newcairo','القاهرة الجديدة':'newcairo',
+    'الرحاب':'rehab','Al Rehab':'rehab',
+    'الشيخ زايد':'sheikzayed','Sheikh Zayed':'sheikzayed',
+    '6 أكتوبر':'6october','6 October':'6october',
+    'التجمع الخامس':'5thsettlement',
+    'Dreamland':'dreamland','دريملاند':'dreamland',
+    'القاهرة':'cairo','Cairo':'cairo'
+  };
+  return map[loc] || loc.toLowerCase().replace(/\s+/g,'');
+}
+
+function scoreMatchPair(supply, demand) {
+  let score = 0;
+  const sLoc = normalizeLocationKey(supply.location);
+  const dLoc = normalizeLocationKey(demand.location);
+  if (sLoc && dLoc && sLoc === dLoc) score += 40;
+  else if (sLoc && dLoc && (sLoc.includes(dLoc) || dLoc.includes(sLoc))) score += 25;
+  if (supply.purpose && demand.purpose && supply.purpose === demand.purpose) score += 20;
+  if (demand.price_max && supply.price) {
+    if (supply.price <= demand.price_max) score += 25;
+    else if (supply.price <= demand.price_max * 1.15) score += 12;
+  } else if (!demand.price_max) score += 12;
+  if (supply.bedrooms && demand.bedrooms && supply.bedrooms === demand.bedrooms) score += 15;
+  else if (!demand.bedrooms) score += 7;
+  return Math.min(score, 100);
+}
+
+// ─── MAP APIs ────────────────────────────────
+app.get('/api/map/supply', (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 500, 1000);
+    const d = db();
+    const rows = d.prepare('SELECT id, location, city, area, property_type, purpose, price, bedrooms, size, sender_phone FROM supply ORDER BY created_at DESC LIMIT ?').all(limit);
+    d.close();
+    const enriched = rows.map(r => {
+      const coords = getCoords(r.location) || getCoords(r.city) || getCoords(r.area);
+      return { ...r, lat: coords?.lat || null, lng: coords?.lng || null, location_label: coords?.label || r.location };
+    }).filter(r => r.lat);
+    res.json({ count: enriched.length, rows: enriched });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/map/demand', (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 500, 1000);
+    const d = db();
+    const rows = d.prepare('SELECT id, location, city, area, property_type, purpose, price_min, price_max, bedrooms FROM demand ORDER BY created_at DESC LIMIT ?').all(limit);
+    d.close();
+    const enriched = rows.map(r => {
+      const coords = getCoords(r.location) || getCoords(r.city) || getCoords(r.area);
+      return { ...r, lat: coords?.lat || null, lng: coords?.lng || null, location_label: coords?.label || r.location };
+    }).filter(r => r.lat);
+    res.json({ count: enriched.length, rows: enriched });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/map/heatmap', (req, res) => {
+  try {
+    const d = db();
+    const supplyByLoc = d.prepare("SELECT location, COUNT(*) cnt, AVG(price) avg_price FROM supply WHERE location IS NOT NULL AND location != '' GROUP BY location").all();
+    const demandByLoc = d.prepare("SELECT location, COUNT(*) cnt FROM demand WHERE location IS NOT NULL AND location != '' GROUP BY location").all();
+    d.close();
+    const supplyMap = {};
+    supplyByLoc.forEach(r => { supplyMap[r.location] = { count: r.cnt, avg_price: r.avg_price }; });
+    const demandMap = {};
+    demandByLoc.forEach(r => { demandMap[r.location] = r.cnt; });
+    const allLocs = new Set([...Object.keys(supplyMap), ...Object.keys(demandMap)]);
+    const rows = [];
+    for (const loc of allLocs) {
+      const coords = getCoords(loc);
+      if (!coords) continue;
+      const supply_count = supplyMap[loc]?.count || 0;
+      const demand_count = demandMap[loc] || 0;
+      const avg_price = supplyMap[loc]?.avg_price || 0;
+      const pressure_index = supply_count > 0 ? (demand_count / supply_count) : demand_count;
+      rows.push({ location: loc, location_label: coords.label, lat: coords.lat, lng: coords.lng, supply_count, demand_count, avg_price, pressure_index });
+    }
+    rows.sort((a, b) => b.demand_count - a.demand_count);
+    res.json({ count: rows.length, rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── MARKET ANALYSIS APIs ────────────────────
+app.get('/api/market/analysis', (req, res) => {
+  try {
+    const d = db();
+    const supplyByLoc = d.prepare("SELECT location, COUNT(*) supply_count, AVG(price) avg_price FROM supply WHERE location IS NOT NULL AND location != '' GROUP BY location ORDER BY supply_count DESC LIMIT 20").all();
+    const demandByLoc = d.prepare("SELECT location, COUNT(*) demand_count, AVG(price_max) avg_budget FROM demand WHERE location IS NOT NULL AND location != '' GROUP BY location ORDER BY demand_count DESC LIMIT 20").all();
+    const propTypeSupply = d.prepare('SELECT property_type, COUNT(*) cnt FROM supply WHERE property_type IS NOT NULL GROUP BY property_type ORDER BY cnt DESC').all();
+    const propTypeDemand = d.prepare('SELECT property_type, COUNT(*) cnt FROM demand WHERE property_type IS NOT NULL GROUP BY property_type ORDER BY cnt DESC').all();
+    const purposeSupply = d.prepare('SELECT purpose, COUNT(*) cnt FROM supply WHERE purpose IS NOT NULL GROUP BY purpose ORDER BY cnt DESC').all();
+    const purposeDemand = d.prepare('SELECT purpose, COUNT(*) cnt FROM demand WHERE purpose IS NOT NULL GROUP BY purpose ORDER BY cnt DESC').all();
+    d.close();
+    const demandMap = {};
+    demandByLoc.forEach(r => { demandMap[r.location] = r; });
+    const locations = supplyByLoc.map(s => {
+      const dem = demandMap[s.location] || { demand_count: 0, avg_budget: 0 };
+      return {
+        location: s.location,
+        supply_count: s.supply_count,
+        demand_count: dem.demand_count,
+        avg_supply_price: s.avg_price,
+        avg_demand_budget: dem.avg_budget,
+        pressure_index: s.supply_count > 0 ? (dem.demand_count / s.supply_count) : 0
+      };
+    });
+    // Add demand-only locations
+    demandByLoc.forEach(d => {
+      if (!locations.find(l => l.location === d.location)) {
+        locations.push({ location: d.location, supply_count: 0, demand_count: d.demand_count, avg_supply_price: 0, avg_demand_budget: d.avg_budget, pressure_index: d.demand_count });
+      }
+    });
+    locations.sort((a, b) => b.demand_count - a.demand_count);
+    res.json({ locations: locations.slice(0, 20), property_type_supply: propTypeSupply, property_type_demand: propTypeDemand, purpose_supply: purposeSupply, purpose_demand: purposeDemand, generated_at: new Date().toISOString() });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/market/location/:location', (req, res) => {
+  try {
+    const loc = req.params.location;
+    const d = db();
+    const supply_count = d.prepare('SELECT COUNT(*) c FROM supply WHERE location = ?').get(loc).c;
+    const demand_count = d.prepare('SELECT COUNT(*) c FROM demand WHERE location = ?').get(loc).c;
+    const match_count = d.prepare('SELECT COUNT(*) c FROM matches WHERE supply_location = ?').get(loc).c;
+    const avg_supply_price = d.prepare('SELECT AVG(price) v FROM supply WHERE location = ?').get(loc).v || 0;
+    const avg_demand_budget = d.prepare('SELECT AVG(price_max) v FROM demand WHERE location = ?').get(loc).v || 0;
+    const prop_types = d.prepare('SELECT property_type, COUNT(*) cnt FROM supply WHERE location = ? AND property_type IS NOT NULL GROUP BY property_type ORDER BY cnt DESC').all(loc);
+    const bedrooms_dist = d.prepare('SELECT bedrooms, COUNT(*) cnt FROM demand WHERE location = ? AND bedrooms IS NOT NULL GROUP BY bedrooms ORDER BY cnt DESC').all(loc);
+    const recent_supply = d.prepare('SELECT id, location, property_type, purpose, price, bedrooms, size, sender_phone FROM supply WHERE location = ? ORDER BY created_at DESC LIMIT 20').all(loc);
+    const active_demand = d.prepare('SELECT id, location, property_type, purpose, price_min, price_max, bedrooms FROM demand WHERE location = ? ORDER BY created_at DESC LIMIT 20').all(loc);
+    const top_matches = d.prepare('SELECT * FROM matches WHERE supply_location = ? AND match_score >= 70 ORDER BY match_score DESC LIMIT 10').all(loc);
+    d.close();
+    res.json({ location: loc, supply_count, demand_count, match_count, avg_supply_price, avg_demand_budget, property_types: prop_types, bedrooms_distribution: bedrooms_dist, recent_supply, active_demand, top_matches });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── ASSET MATCHING APIs ─────────────────────
+app.get('/api/assets/:code/demand-matches', (req, res) => {
+  try {
+    const code = req.params.code;
+    const min_score = parseInt(req.query.min_score) || 50;
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    const d = db();
+    const asset = d.prepare('SELECT * FROM assets WHERE asset_code = ?').get(code);
+    if (!asset) { d.close(); return res.status(404).json({ error: 'Asset not found' }); }
+    const demands = d.prepare('SELECT * FROM demand ORDER BY created_at DESC LIMIT 500').all();
+    d.close();
+    const supplyLike = { location: asset.location, purpose: asset.purpose, price: asset.price, bedrooms: asset.bedrooms };
+    const scored = demands.map(dem => ({ ...dem, match_score: scoreMatchPair(supplyLike, dem) })).filter(d => d.match_score >= min_score).sort((a, b) => b.match_score - a.match_score).slice(0, limit);
+    res.json({ asset_code: code, asset, count: scored.length, matches: scored });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/assets/match-custom', (req, res) => {
+  try {
+    const { location, property_type, purpose, price, bedrooms, size } = req.body;
+    const min_score = parseInt(req.query.min_score) || 30;
+    const d = db();
+    const demands = d.prepare('SELECT * FROM demand ORDER BY created_at DESC LIMIT 1000').all();
+    d.close();
+    const supplyLike = { location, property_type, purpose, price: parseFloat(price) || 0, bedrooms: parseInt(bedrooms) || null };
+    const scored = demands.map(dem => ({ ...dem, match_score: scoreMatchPair(supplyLike, dem) })).filter(d => d.match_score >= min_score).sort((a, b) => b.match_score - a.match_score).slice(0, 50);
+    res.json({ count: scored.length, matches: scored, query: supplyLike });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/demand/:id/supply-matches', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const min_score = parseInt(req.query.min_score) || 50;
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    const d = db();
+    const demand = d.prepare('SELECT * FROM demand WHERE id = ?').get(id);
+    if (!demand) { d.close(); return res.status(404).json({ error: 'Demand not found' }); }
+    const supplies = d.prepare('SELECT * FROM supply ORDER BY created_at DESC LIMIT 500').all();
+    d.close();
+    const scored = supplies.map(s => ({ ...s, match_score: scoreMatchPair(s, demand) })).filter(s => s.match_score >= min_score).sort((a, b) => b.match_score - a.match_score).slice(0, limit);
+    res.json({ demand_id: id, demand, count: scored.length, matches: scored });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/demand/match-custom', (req, res) => {
+  try {
+    const { location, property_type, purpose, price_max, bedrooms } = req.body;
+    const min_score = parseInt(req.query.min_score) || 30;
+    const d = db();
+    const supplies = d.prepare('SELECT * FROM supply ORDER BY created_at DESC LIMIT 1000').all();
+    d.close();
+    const demandLike = { location, property_type, purpose, price_max: parseFloat(price_max) || null, bedrooms: parseInt(bedrooms) || null };
+    const scored = supplies.map(s => ({ ...s, match_score: scoreMatchPair(s, demandLike) })).filter(s => s.match_score >= min_score).sort((a, b) => b.match_score - a.match_score).slice(0, 50);
+    res.json({ count: scored.length, matches: scored, query: demandLike });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── PUBLIC API (CORS open) ───────────────────
+app.use('/api/public', (req, res, next) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
+app.get('/api/public/market-summary', (req, res) => {
+  try {
+    const d = db();
+    const total_supply = d.prepare('SELECT COUNT(*) c FROM supply').get().c;
+    const total_demand = d.prepare('SELECT COUNT(*) c FROM demand').get().c;
+    const total_matches = d.prepare('SELECT COUNT(*) c FROM matches').get().c;
+    const topLocs = d.prepare("SELECT location, COUNT(*) cnt FROM demand WHERE location IS NOT NULL AND location != '' GROUP BY location ORDER BY cnt DESC LIMIT 10").all();
+    const supplyByLoc = d.prepare("SELECT location, COUNT(*) cnt FROM supply WHERE location IS NOT NULL AND location != '' GROUP BY location").all();
+    d.close();
+    const supplyMap = {}; supplyByLoc.forEach(r => { supplyMap[r.location] = r.cnt; });
+    const top_locations = topLocs.map(r => ({ name: r.location, demand: r.cnt, supply: supplyMap[r.location] || 0, pressure: supplyMap[r.location] > 0 ? (r.cnt / supplyMap[r.location]).toFixed(2) : r.cnt }));
+    res.json({ total_supply, total_demand, total_matches, top_locations, last_updated: new Date().toISOString() });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/public/supply', (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const offset = (page - 1) * limit;
+    const { location, property_type, purpose, min_price, max_price, bedrooms } = req.query;
+    let where = '1=1';
+    const params = [];
+    if (location) { where += ' AND location LIKE ?'; params.push(`%${location}%`); }
+    if (property_type) { where += ' AND property_type = ?'; params.push(property_type); }
+    if (purpose) { where += ' AND purpose = ?'; params.push(purpose); }
+    if (min_price) { where += ' AND price >= ?'; params.push(parseFloat(min_price)); }
+    if (max_price) { where += ' AND price <= ?'; params.push(parseFloat(max_price)); }
+    if (bedrooms) { where += ' AND bedrooms = ?'; params.push(parseInt(bedrooms)); }
+    const d = db();
+    const total = d.prepare(`SELECT COUNT(*) c FROM supply WHERE ${where}`).get(...params).c;
+    const rows = d.prepare(`SELECT id, location, city, area, property_type, purpose, price, bedrooms, size, group_name FROM supply WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
+    d.close();
+    res.json({ total, page, limit, pages: Math.ceil(total / limit), count: rows.length, data: rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/public/demand', (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const offset = (page - 1) * limit;
+    const { location, property_type, purpose, min_price, max_price, bedrooms } = req.query;
+    let where = '1=1';
+    const params = [];
+    if (location) { where += ' AND location LIKE ?'; params.push(`%${location}%`); }
+    if (property_type) { where += ' AND property_type = ?'; params.push(property_type); }
+    if (purpose) { where += ' AND purpose = ?'; params.push(purpose); }
+    if (min_price) { where += ' AND price_max >= ?'; params.push(parseFloat(min_price)); }
+    if (max_price) { where += ' AND price_max <= ?'; params.push(parseFloat(max_price)); }
+    if (bedrooms) { where += ' AND bedrooms = ?'; params.push(parseInt(bedrooms)); }
+    const d = db();
+    const total = d.prepare(`SELECT COUNT(*) c FROM demand WHERE ${where}`).get(...params).c;
+    const rows = d.prepare(`SELECT id, location, city, area, property_type, purpose, price_min, price_max, bedrooms FROM demand WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
+    d.close();
+    res.json({ total, page, limit, pages: Math.ceil(total / limit), count: rows.length, data: rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/public/match', (req, res) => {
+  try {
+    const { asset_location, asset_type, asset_purpose, asset_price, asset_bedrooms } = req.query;
+    const d = db();
+    const demands = d.prepare('SELECT * FROM demand ORDER BY created_at DESC LIMIT 500').all();
+    d.close();
+    const supplyLike = { location: asset_location, property_type: asset_type, purpose: asset_purpose, price: parseFloat(asset_price) || 0, bedrooms: parseInt(asset_bedrooms) || null };
+    const scored = demands.map(dem => ({ ...dem, match_score: scoreMatchPair(supplyLike, dem) })).filter(d => d.match_score >= 30).sort((a, b) => b.match_score - a.match_score).slice(0, 20);
+    res.json({ count: scored.length, matches: scored });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/public/match', (req, res) => {
+  try {
+    const { asset_location, asset_type, asset_purpose, asset_price, asset_bedrooms } = req.body;
+    const d = db();
+    const demands = d.prepare('SELECT * FROM demand ORDER BY created_at DESC LIMIT 500').all();
+    d.close();
+    const supplyLike = { location: asset_location, property_type: asset_type, purpose: asset_purpose, price: parseFloat(asset_price) || 0, bedrooms: parseInt(asset_bedrooms) || null };
+    const scored = demands.map(dem => ({ ...dem, match_score: scoreMatchPair(supplyLike, dem) })).filter(d => d.match_score >= 30).sort((a, b) => b.match_score - a.match_score).slice(0, 20);
+    res.json({ count: scored.length, matches: scored });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/public/embed/:location', (req, res) => {
+  try {
+    const loc = req.params.location;
+    const d = db();
+    const demand_count = d.prepare('SELECT COUNT(*) c FROM demand WHERE location LIKE ?').get(`%${loc}%`).c;
+    const supply_count = d.prepare('SELECT COUNT(*) c FROM supply WHERE location LIKE ?').get(`%${loc}%`).c;
+    const avg_price = d.prepare('SELECT AVG(price) v FROM supply WHERE location LIKE ?').get(`%${loc}%`).v || 0;
+    d.close();
+    res.json({ location: loc, demand_count, supply_count, avg_price: Math.round(avg_price), pressure: supply_count > 0 ? (demand_count / supply_count).toFixed(2) : demand_count, last_updated: new Date().toISOString() });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── MARKET INTELLIGENCE PAGE ────────────────
+app.get(['/market-intelligence', '/market'], (req, res) => res.sendFile(path.join(CLIENT_DIR, 'public', 'market-intelligence.html')));
+
+// ─── MARKET V2 EXTENSIONS ─────────────────────
+require('./market-v2')(app, db);
+
+// ─── MODULE INTEGRATIONS (v11 Merge) ─────────────────────
+// AVM — Automated Valuation Model
+require('./avm')(app, db);
+
+// Subscriptions + User Registration
+require('./subscriptions')(app, db, hashPw, makeToken, auth);
+
+// Broker Portal with OTP
+require('./broker-portal')(app, db, makeToken);
+
+// Lead Delivery System
+require('./leads')(app, db, auth);
+
+// Buyers Management
+require('./buyers')(app, db, auth);
+
+// ─── PROPERTIES CRUD ─────────────────────────────
+(function initProperties() {
+  const d = db(true);
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS properties (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE,
+      title TEXT,
+      location TEXT,
+      district TEXT,
+      property_type TEXT,
+      bedrooms INTEGER,
+      bathrooms INTEGER,
+      area_m2 REAL,
+      price REAL,
+      currency TEXT DEFAULT 'EGP',
+      purpose TEXT DEFAULT 'sale',
+      status TEXT DEFAULT 'available',
+      owner_name TEXT,
+      owner_phone TEXT,
+      owner_email TEXT,
+      images_json TEXT DEFAULT '[]',
+      features_json TEXT DEFAULT '[]',
+      notes TEXT,
+      floor INTEGER,
+      furnished INTEGER DEFAULT 0,
+      year_built INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  d.close();
+})();
+
+// Generate unique code
+function genPropertyCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = 'MP-';
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+app.get('/api/properties', auth, (req, res) => {
+  try {
+    const { status, search, location, limit } = req.query;
+    const lim = parseInt(limit) || 100;
+    let where = "1=1";
+    const params = [];
+    if (status) { where += " AND status=?"; params.push(status); }
+    if (location) { where += " AND (location LIKE ? OR district LIKE ?)"; params.push(`%${location}%`, `%${location}%`); }
+    if (search) { where += " AND (title LIKE ? OR code LIKE ? OR location LIKE ? OR owner_name LIKE ?)"; params.push(`%${search}%`,`%${search}%`,`%${search}%`,`%${search}%`); }
+    const d2 = db(false);
+    const rows = d2.prepare(`SELECT * FROM properties WHERE ${where} ORDER BY created_at DESC LIMIT ?`).all(...params, lim);
+    const total = d2.prepare(`SELECT COUNT(*) c FROM properties WHERE ${where}`).get(...params);
+    d2.close();
+    res.json({ count: rows.length, total: total.c, properties: rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/properties', auth, (req, res) => {
+  try {
+    const p = req.body;
+    const code = p.code || genPropertyCode();
+    const d2 = db(true);
+    const result = d2.prepare(`
+      INSERT INTO properties (code, title, location, district, property_type, bedrooms, bathrooms, area_m2, price, currency, purpose, status, owner_name, owner_phone, owner_email, images_json, features_json, notes, floor, furnished, year_built)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      code, p.title||null, p.location||null, p.district||null, p.property_type||null,
+      p.bedrooms||null, p.bathrooms||null, p.area_m2||null, p.price||null, p.currency||'EGP',
+      p.purpose||'sale', p.status||'available', p.owner_name||null, p.owner_phone||null, p.owner_email||null,
+      JSON.stringify(p.images||[]), JSON.stringify(p.features||[]), p.notes||null,
+      p.floor||null, p.furnished?1:0, p.year_built||null
+    );
+    d2.close();
+    res.json({ ok: true, id: result.lastInsertRowid, code });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/properties/:id', auth, (req, res) => {
+  try {
+    const p = req.body;
+    const d2 = db(true);
+    d2.prepare(`
+      UPDATE properties SET title=?, location=?, district=?, property_type=?, bedrooms=?, bathrooms=?, area_m2=?, price=?, currency=?, purpose=?, status=?, owner_name=?, owner_phone=?, owner_email=?, images_json=?, features_json=?, notes=?, floor=?, furnished=?, year_built=?, updated_at=datetime('now')
+      WHERE id=?
+    `).run(
+      p.title||null, p.location||null, p.district||null, p.property_type||null,
+      p.bedrooms||null, p.bathrooms||null, p.area_m2||null, p.price||null, p.currency||'EGP',
+      p.purpose||'sale', p.status||'available', p.owner_name||null, p.owner_phone||null, p.owner_email||null,
+      JSON.stringify(p.images||[]), JSON.stringify(p.features||[]), p.notes||null,
+      p.floor||null, p.furnished?1:0, p.year_built||null, req.params.id
+    );
+    d2.close();
+    res.json({ ok: true, id: parseInt(req.params.id) });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/properties/:id', auth, (req, res) => {
+  try {
+    const d2 = db(true);
+    d2.prepare("UPDATE properties SET status='deleted', updated_at=datetime('now') WHERE id=?").run(req.params.id);
+    d2.close();
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── CURRENCIES ──────────────────────────────────
+const EXCHANGE_RATES = {
+  EGP: 1, USD: 0.0204, EUR: 0.0188, SAR: 0.0765, AED: 0.0749, GBP: 0.0162, JPY: 3.15
+};
+app.get('/api/currencies', (req, res) => {
+  res.json({ base: 'EGP', rates: EXCHANGE_RATES, updated: '2026-05-11' });
+});
+
+// ─── EMAIL-BASED LOGIN SUPPORT ───────────────────
+// Extend login to support email as username
+const origLoginHandler = app._router.stack.find(l => l.route && l.route.path === '/api/auth/login');
+// Already handled above - the existing login checks ADMIN_USERS by lowercased username
+// Add email variant: mmaisara@crystalpowerinvestment.com → mmaisara
+const origLogin = app.post;
+
+// ─── SPA CATCH-ALL (must be LAST) ────────────────
+app.get('*', (req, res) => {
+  // Skip API routes and static files
+  if (req.path.startsWith('/api/') || req.path.startsWith('/reports/') || req.path.includes('.')) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  res.sendFile(path.join(CLIENT_DIR, 'public', 'index.html'));
+});
+
+// ─── START SERVER ────────────────────────────────
+const http = require('http');
+const WebSocket = require('ws');
+const server = http.createServer(app);
+
+// WebSocket for live updates
+let wss;
+try {
+  wss = new WebSocket.Server({ server, path: '/ws' });
+  wss.on('connection', (ws) => {
+    ws.send(JSON.stringify({ type: 'connected', message: 'MatchPro Live Feed', timestamp: new Date().toISOString() }));
+    ws.on('error', () => {});
+  });
+  console.log('✅ WebSocket server active on /ws');
+} catch(e) {
+  console.log('⚠️  WebSocket not available (ws package missing), using HTTP polling');
+}
+
+// Broadcast helper
+function broadcast(data) {
+  if (!wss) return;
+  const msg = JSON.stringify(data);
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) client.send(msg);
+  });
+}
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ MatchPro Unified v11.0.0 listening on :${PORT}`);
+  console.log(`   DB: ${DB_PATH}`);
+  console.log(`   Reports: ${REPORTS_DIR}`);
+  console.log(`   Rate limit: ${RATE_LIMIT} req/min per IP`);
+  console.log(`   Access log: ${ACCESS_LOG}`);
+  console.log(`   Modules: AVM, Subscriptions, Broker Portal, Leads, Buyers, Properties`);
+});

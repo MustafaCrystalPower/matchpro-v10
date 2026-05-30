@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MatchPro™ — Market Intelligence</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',sans-serif;background:#060916;color:#e8eaf6;min-height:100vh}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#1e2d5a;border-radius:3px}
+
+#hdr{position:sticky;top:0;z-index:999;background:rgba(6,9,22,.97);border-bottom:1px solid #1e2d5a;padding:0 20px;height:56px;display:flex;align-items:center;gap:12px;backdrop-filter:blur(10px)}
+.logo{font-size:20px;font-weight:800;color:#FFD700;flex-shrink:0}
+.live-pill{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#00E676;flex-shrink:0}
+.dot{width:7px;height:7px;border-radius:50%;background:#00E676;box-shadow:0 0 6px #00E676;animation:blink 1.8s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+.ticker{flex:1;overflow:hidden;font-size:11px;color:#9da8cb;background:#0d1530;border:1px solid #1e2d5a;border-radius:5px;padding:5px 10px}
+.ticker span{display:inline-block;white-space:nowrap;animation:scroll 40s linear infinite}
+@keyframes scroll{0%{transform:translateX(100%)}100%{transform:translateX(-100%)}}
+.bell{position:relative;background:none;border:1px solid #1e2d5a;border-radius:7px;padding:5px 10px;color:#9da8cb;font-size:15px;cursor:pointer;transition:.2s;flex-shrink:0}
+.bell:hover{border-color:#FFD700;color:#FFD700}
+.bell-cnt{position:absolute;top:-5px;right:-5px;background:#FF4444;color:#fff;font-size:9px;font-weight:800;border-radius:8px;padding:1px 4px;display:none}
+
+#npanel{display:none;position:fixed;top:62px;right:12px;width:290px;background:#0d1530;border:1px solid #1e2d5a;border-radius:10px;z-index:998;box-shadow:0 8px 28px rgba(0,0,0,.6)}
+#npanel.open{display:block}
+.nhdr{padding:10px 14px;border-bottom:1px solid #1e2d5a;font-size:12px;font-weight:700;display:flex;justify-content:space-between}
+.nlist{max-height:260px;overflow-y:auto}
+.ni{padding:9px 14px;border-bottom:1px solid rgba(30,45,90,.4);font-size:11px;line-height:1.5;animation:fi .3s ease}
+.nt{color:#5c6a98;font-size:10px;margin-top:2px}
+.nempty{padding:18px;text-align:center;color:#5c6a98;font-size:11px}
+@keyframes fi{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
+#stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px 18px}
+@media(max-width:640px){#stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:#0d1530;border:1px solid #1e2d5a;border-radius:10px;padding:14px;text-align:center}
+.sn{font-size:24px;font-weight:800;color:#FFD700;line-height:1}
+.sl{font-size:10px;color:#5c6a98;margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
+
+#mapwrap{position:relative;height:440px;border-top:1px solid #1e2d5a;border-bottom:1px solid #1e2d5a}
+#map{height:100%;width:100%}
+.mbtns{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:500;display:flex;gap:4px;background:rgba(6,9,22,.93);border:1px solid #1e2d5a;border-radius:8px;padding:4px}
+.mb{padding:5px 12px;border-radius:5px;font-size:11px;font-weight:600;border:none;background:transparent;color:#9da8cb;cursor:pointer;transition:.2s}
+.mb.on{background:#111d3c;color:#FFD700}
+.map-popup{position:absolute;bottom:12px;right:12px;z-index:500;background:rgba(6,9,22,.95);border:1px solid #1e2d5a;border-radius:8px;padding:12px 14px;min-width:170px;font-size:12px;display:none}
+.map-popup.vis{display:block}
+
+.wrap{padding:14px 18px}
+.sec-title{font-size:12px;font-weight:700;color:#9da8cb;text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#5c6a98;border-bottom:1px solid #1e2d5a}
+.tbl td{padding:7px 10px;border-bottom:1px solid rgba(30,45,90,.35);vertical-align:middle}
+.tbl tr:hover td{background:rgba(13,21,48,.6)}
+.prs{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700}
+.ph{background:rgba(255,68,68,.15);color:#FF4444}
+.pm{background:rgba(255,152,0,.15);color:#FF9800}
+.pl{background:rgba(0,230,118,.15);color:#00E676}
+.bar{height:4px;border-radius:2px;background:#1e2d5a;width:70px;overflow:hidden;display:inline-block;vertical-align:middle;margin-right:6px}
+.bfill{height:100%;border-radius:2px}
+
+.feed{display:flex;flex-direction:column;gap:6px;max-height:340px;overflow-y:auto}
+.fi{background:#0d1530;border:1px solid #1e2d5a;border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;animation:fi .35s ease}
+.floc{font-size:13px;font-weight:700}
+.fdet{font-size:11px;color:#9da8cb;margin-top:2px}
+.ftime{font-size:10px;color:#5c6a98;margin-top:2px}
+.fbadge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;flex-shrink:0}
+.bsale{background:rgba(255,215,0,.15);color:#FFD700}
+.brent{background:rgba(0,212,255,.15);color:#00D4FF}
+
+#footer{text-align:center;padding:18px;border-top:1px solid #1e2d5a;font-size:11px;color:#5c6a98;margin-top:4px}
+</style>
+</head>
+<body>
+
+<div id="hdr">
+  <div class="logo">MatchPro™</div>
+  <div class="live-pill"><span class="dot"></span>LIVE</div>
+  <div class="ticker"><span id="tkr">Connecting to live data…</span></div>
+  <button class="bell" onclick="toggleN()">🔔<span class="bell-cnt" id="bcnt">0</span></button>
+</div>
+
+<div id="npanel">
+  <div class="nhdr"><span>🔔 Alerts</span><span style="color:#5c6a98;cursor:pointer;font-size:11px" onclick="clearN()">Clear</span></div>
+  <div class="nlist" id="nlist"><div class="nempty">No alerts yet</div></div>
+</div>
+
+<div id="stats">
+  <div class="stat"><div class="sn" id="s1">—</div><div class="sl">Total Matches</div></div>
+  <div class="stat"><div class="sn" id="s2">1,441</div><div class="sl">Perfect (90%+)</div></div>
+  <div class="stat"><div class="sn" id="s3">—</div><div class="sl">Active Buyers</div></div>
+  <div class="stat"><div class="sn" id="s4">—</div><div class="sl">Properties</div></div>
+</div>
+
+<div id="mapwrap">
+  <div id="map"></div>
+  <div class="mbtns">
+    <button class="mb on" onclick="setMode('heat',this)">🔥 Heat</button>
+    <button class="mb" onclick="setMode('pressure',this)">📊 Pressure</button>
+    <button class="mb" onclick="setMode('buyers',this)">👥 Buyers</button>
+    <button class="mb" onclick="setMode('supply',this)">🏠 Supply</button>
+  </div>
+  <div class="map-popup" id="mpop"></div>
+</div>
+
+<div class="wrap" style="padding-top:16px">
+  <div class="sec-title">📊 Market Pressure</div>
+  <div style="overflow-x:auto">
+    <table class="tbl">
+      <thead><tr><th>Location</th><th>Buyers</th><th>Properties</th><th>Pressure</th><th>Signal</th></tr></thead>
+      <tbody id="mktbody"><tr><td colspan="5" style="padding:20px;text-align:center;color:#5c6a98">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="wrap" style="padding-top:4px">
+  <div class="sec-title">🔴 Live Buyer Requests</div>
+  <div class="feed" id="feed"><div style="padding:20px;text-align:center;color:#5c6a98;font-size:12px">Loading…</div></div>
+</div>
+
+<div id="footer">MatchPro™ · Crystal Power Investments · Real-time property matching across Egypt</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+let map, markersLayer, heatLayer;
+let mode = 'heat';
+let heatData = [], analysisData = [], supplyRows = [], demandRows = [];
+let lastDemandId = 0;
+let notifs = [], nc = 0;
+
+// ── NOTIFICATIONS ──
+function toggleN(){
+  document.getElementById('npanel').classList.toggle('open');
+  nc=0; document.getElementById('bcnt').style.display='none';
+}
+function clearN(){ notifs=[]; nc=0; document.getElementById('bcnt').style.display='none'; renderN(); }
+function addN(txt,icon){
+  const t=new Date().toLocaleTimeString('en-EG',{hour:'2-digit',minute:'2-digit'});
+  notifs.unshift({txt,icon,t}); if(notifs.length>15) notifs.pop();
+  nc++; const el=document.getElementById('bcnt'); el.textContent=nc>9?'9+':nc; el.style.display='block';
+  renderN();
+  if(Notification.permission==='granted') new Notification('MatchPro™',{body:txt,silent:false});
+  try{
+    const c=new(window.AudioContext||window.webkitAudioContext)();
+    const o=c.createOscillator(),g=c.createGain();
+    o.connect(g);g.connect(c.destination);
+    o.frequency.value=660; g.gain.setValueAtTime(.12,c.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.25);
+    o.start();o.stop(c.currentTime+.25);
+  }catch(e){}
+}
+function renderN(){
+  const el=document.getElementById('nlist');
+  if(!notifs.length){el.innerHTML='<div class="nempty">No alerts yet</div>';return;}
+  el.innerHTML=notifs.map(n=>`<div class="ni">${n.icon} ${n.txt}<div class="nt">${n.t}</div></div>`).join('');
+}
+if('Notification'in window&&Notification.permission==='default') Notification.requestPermission();
+
+// ── MAP ──
+function initMap(){
+  map=L.map('map',{zoomControl:true,attributionControl:false}).setView([30.07,31.38],10);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:19}).addTo(map);
+  markersLayer=L.layerGroup().addTo(map);
+}
+function setMode(m,btn){
+  mode=m;
+  document.querySelectorAll('.mb').forEach(b=>b.classList.remove('on'));
+  if(btn) btn.classList.add('on');
+  renderMap();
+}
+function renderMap(){
+  if(!map) return;
+  if(heatLayer){try{map.removeLayer(heatLayer);}catch(e){} heatLayer=null;}
+  markersLayer.clearLayers();
+  const pop=document.getElementById('mpop'); pop.classList.remove('vis');
+
+  if(mode==='heat'&&heatData.length){
+    // Use leaflet heatmap plugin if loaded, else circles
+    const pts=heatData.filter(r=>r.lat&&r.lng).map(r=>[r.lat,r.lng,Math.sqrt(r.demand_count||1)]);
+    if(window.L&&L.heatLayer){
+      heatLayer=L.heatLayer(pts,{radius:38,blur:22,maxZoom:14,gradient:{0.1:'#00D4FF',0.4:'#FFD700',0.8:'#FF4444'}}).addTo(map);
+    } else {
+      heatData.filter(r=>r.lat&&r.lng).forEach(r=>addCircle(r,'heat'));
+    }
+  } else if(mode==='pressure'&&heatData.length){
+    heatData.filter(r=>r.lat&&r.lng).forEach(r=>addCircle(r,'pressure'));
+  } else if(mode==='buyers'&&demandRows.length){
+    demandRows.filter(r=>r.lat&&r.lng).forEach(r=>{
+      const m=L.circleMarker([r.lat,r.lng],{radius:5,color:'#00D4FF',fillColor:'#00D4FF',fillOpacity:.7,weight:1});
+      m.bindPopup(`<div style="font-family:Inter,sans-serif;font-size:12px"><b>${r.location_label||r.location}</b><br>${r.bedrooms?r.bedrooms+' BR · ':''}${r.purpose||''}</div>`);
+      m.addTo(markersLayer);
+    });
+  } else if(mode==='supply'&&supplyRows.length){
+    supplyRows.filter(r=>r.lat&&r.lng).forEach(r=>{
+      const m=L.circleMarker([r.lat,r.lng],{radius:5,color:'#00E676',fillColor:'#00E676',fillOpacity:.7,weight:1});
+      m.bindPopup(`<div style="font-family:Inter,sans-serif;font-size:12px"><b>${r.location_label||r.location}</b><br>${r.property_type||''} · ${r.bedrooms?r.bedrooms+' BR':''}${r.price?' · '+Number(r.price).toLocaleString()+' EGP':''}</div>`);
+      m.addTo(markersLayer);
+    });
+  } else if(heatData.length){
+    // fallback
+    heatData.filter(r=>r.lat&&r.lng).forEach(r=>addCircle(r,'pressure'));
+  }
+}
+function addCircle(r,type){
+  const p=r.pressure_index||1;
+  const color=p>4?'#FF4444':p>2.5?'#FF9800':p>1.2?'#FFD700':'#00E676';
+  const radius=Math.max(700,Math.min((r.demand_count||10)*16,11000));
+  const c=L.circle([r.lat,r.lng],{radius,color,fillColor:color,fillOpacity:.2,weight:2});
+  c.bindPopup(`<div style="font-family:Inter,sans-serif;min-width:155px;font-size:12px">
+    <b style="font-size:13px">${r.location_label}</b><br>
+    👥 <b>${(r.demand_count||0).toLocaleString()}</b> buyers &nbsp;
+    🏠 <b>${(r.supply_count||0).toLocaleString()}</b> supply<br>
+    📈 Pressure: <b style="color:${color}">${(p).toFixed(1)}x</b>
+  </div>`);
+  c.on('click',()=>{
+    const pop=document.getElementById('mpop');
+    pop.innerHTML=`<div style="font-size:13px;font-weight:700;color:#FFD700;margin-bottom:6px">${r.location_label}</div>
+    <div style="font-size:11px;color:#9da8cb;line-height:1.9">
+      👥 Buyers: <b style="color:#e8eaf6">${(r.demand_count||0).toLocaleString()}</b><br>
+      🏠 Supply: <b style="color:#e8eaf6">${(r.supply_count||0).toLocaleString()}</b><br>
+      📈 Pressure: <b style="color:${color}">${p.toFixed(1)}x</b><br>
+      ${p>3?'🔴 Seller\'s Market':p<1?'🟢 Buyer\'s Market':'🟡 Balanced'}
+    </div>`;
+    pop.classList.add('vis');
+  });
+  c.addTo(markersLayer);
+}
+
+// ── LOAD ALL DATA ──
+async function loadAll(){
+  try{
+    const [statsR,heatR,analysisR,supplyR,demandFeedR]=await Promise.allSettled([
+      fetch('/api/stats').then(r=>r.json()),
+      fetch('/api/market/heatmap/v2').then(r=>r.json()),
+      fetch('/api/market/analysis/v2').then(r=>r.json()),
+      fetch('/api/map/supply?limit=500').then(r=>r.json()),
+      fetch('/api/public/demand?limit=25').then(r=>r.json()),
+    ]);
+
+    // Stats
+    if(statsR.status==='fulfilled'){
+      const t=statsR.value.totals||{};
+      document.getElementById('s1').textContent=(t.matches||57105).toLocaleString();
+      document.getElementById('s3').textContent=(t.demand||7640).toLocaleString();
+      document.getElementById('s4').textContent=(t.supply||4508).toLocaleString();
+      document.getElementById('tkr').textContent=
+        `🔗 ${(t.matches||57105).toLocaleString()} Matches · ⭐ 1,441 Perfect · 👥 ${(t.demand||7640).toLocaleString()} Active Buyers · 🏠 ${(t.supply||4508).toLocaleString()} Properties · 💬 ${(t.messages||5573).toLocaleString()} Messages · Updated ${new Date().toLocaleTimeString()} · MatchPro™ by Crystal Power Investments`;
+    }
+
+    // Heatmap data for map
+    if(heatR.status==='fulfilled'){
+      heatData=heatR.value.rows||[];
+    }
+
+    // Analysis for market table
+    if(analysisR.status==='fulfilled'){
+      analysisData=analysisR.value.markets||[];
+      renderTable(analysisData);
+    }
+
+    // Supply map dots
+    if(supplyR.status==='fulfilled'){
+      supplyRows=supplyR.value.rows||[];
+    }
+
+    // Load demand map separately
+    try{
+      const dr=await fetch('/api/map/demand?limit=500').then(r=>r.json());
+      demandRows=dr.rows||[];
+    }catch(e){}
+
+    // Render map
+    renderMap();
+
+    // Live demand feed
+    if(demandFeedR.status==='fulfilled'){
+      const items=demandFeedR.value.data||demandFeedR.value||[];
+      renderFeed(Array.isArray(items)?items:[]);
+      // Check for new items
+      if(items.length&&lastDemandId&&items[0].id>lastDemandId){
+        const news=items.filter(i=>i.id>lastDemandId);
+        news.slice(0,3).forEach(i=>{
+          const loc=i.location||i.area||'Unknown';
+          const br=i.bedrooms?i.bedrooms+'BR ':'';
+          const purp=(i.purpose||'').includes('rent')?'rent':'buy';
+          addN(`New buyer: ${loc} — ${br}${purp}`, '🏠');
+        });
+      }
+      if(items.length) lastDemandId=items[0].id;
+    }
+
+  }catch(e){console.warn('loadAll error:',e);}
+}
+
+function renderTable(markets){
+  if(!markets.length) return;
+  const max=Math.max(...markets.map(m=>m.demand_count||0),1);
+  document.getElementById('mktbody').innerHTML=markets.slice(0,15).map(m=>{
+    const p=m.pressure_index||0;
+    const cls=p>3.5?'ph':p>1.5?'pm':'pl';
+    const sig=p>3.5?'🔴 Seller':p>1.5?'🟡 Balanced':'🟢 Buyer';
+    const fpct=Math.round(((m.demand_count||0)/max)*100);
+    const fcol=p>3.5?'#FF4444':p>1.5?'#FF9800':'#00E676';
+    return`<tr>
+      <td style="font-weight:600">${m.label||m.location}</td>
+      <td><div class="bar"><div class="bfill" style="width:${fpct}%;background:${fcol}"></div></div>${(m.demand_count||0).toLocaleString()}</td>
+      <td style="color:#9da8cb">${(m.supply_count||0).toLocaleString()}</td>
+      <td><span class="prs ${cls}">${p.toFixed(1)}x</span></td>
+      <td style="font-size:11px">${sig}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderFeed(items){
+  const el=document.getElementById('feed');
+  if(!items.length){el.innerHTML='<div style="padding:18px;text-align:center;color:#5c6a98;font-size:12px">No demand data</div>';return;}
+  el.innerHTML=items.map(i=>{
+    const loc=i.location||i.area||'—';
+    const isRent=(i.purpose||'').includes('rent');
+    const br=i.bedrooms?`${i.bedrooms} BR · `:'';
+    const pt=i.property_type?i.property_type+' · ':'';
+    const bmax=i.price_max&&i.price_max>10000?Number(i.price_max).toLocaleString()+' EGP':'';
+    const bmin=i.price_min&&i.price_min>10000?Number(i.price_min).toLocaleString():'';
+    const budget=bmax?(bmin?bmin+' – '+bmax:bmax):'';
+    const ts=i.created_at?timeSince(i.created_at):'';
+    return`<div class="fi">
+      <div>
+        <div class="floc">📍 ${loc}</div>
+        <div class="fdet">${br}${pt}${budget||'—'}</div>
+        ${ts?`<div class="ftime">${ts}</div>`:''}
+      </div>
+      <span class="fbadge ${isRent?'brent':'bsale'}">${isRent?'🔑 Rent':'🏷️ Buy'}</span>
+    </div>`;
+  }).join('');
+}
+
+function timeSince(d){
+  const s=Math.floor((Date.now()-new Date(d))/1000);
+  if(isNaN(s)||s<0) return'';
+  if(s<60) return s+'s ago';
+  if(s<3600) return Math.floor(s/60)+'m ago';
+  if(s<86400) return Math.floor(s/3600)+'h ago';
+  return Math.floor(s/86400)+'d ago';
+}
+
+// ── INIT ──
+document.addEventListener('DOMContentLoaded',()=>{
+  initMap();
+  loadAll();
+  setInterval(loadAll,60000);
+});
+
+// Close notif on outside click
+document.addEventListener('click',e=>{
+  const p=document.getElementById('npanel');
+  if(p.classList.contains('open')&&!p.contains(e.target)&&!e.target.closest('.bell')) p.classList.remove('open');
+});
+
+// Load heatmap plugin
+(()=>{const s=document.createElement('script');s.src='https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js';document.head.appendChild(s);})();
+
+// ── PROTECTION ──
+document.addEventListener('contextmenu',e=>e.preventDefault());
+document.addEventListener('keydown',e=>{
+  if(e.key==='F12'||e.ctrlKey&&e.shiftKey&&['I','J','C'].includes(e.key)||e.ctrlKey&&['u','s','p'].includes(e.key)||e.metaKey&&['u','s','p'].includes(e.key)) e.preventDefault();
+});
+document.addEventListener('selectstart',e=>e.preventDefault());
+const _s=document.createElement('style');_s.innerHTML='*{-webkit-user-select:none!important;user-select:none!important}';document.head.appendChild(_s);
+</script>
+</body>
+</html>

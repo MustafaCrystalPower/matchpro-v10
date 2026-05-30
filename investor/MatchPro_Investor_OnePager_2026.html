@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MatchPro™ — Investor One-Pager | May 2026</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  @media print {
+    @page { size: A4; margin: 10mm; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .no-print { display: none; }
+  }
+
+  :root {
+    --navy: #0a1628;
+    --navy-mid: #112040;
+    --navy-light: #1a2e4a;
+    --gold: #c9a84c;
+    --gold-light: #e2c472;
+    --white: #ffffff;
+    --ice: #e8f4fd;
+    --muted: #8faabf;
+    --green: #2ecc71;
+    --border: #1e3a5f;
+  }
+
+  body {
+    background: var(--navy);
+    color: var(--white);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, Helvetica, sans-serif;
+    font-size: 9px;
+    line-height: 1.35;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 8mm;
+  }
+
+  /* ─── HEADER ─────────────────────────────────────────── */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 2px solid var(--gold);
+    padding-bottom: 4mm;
+    margin-bottom: 4mm;
+  }
+  .brand { flex: 1; }
+  .brand-name {
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--gold);
+    letter-spacing: -0.5px;
+    line-height: 1;
+  }
+  .brand-name sup {
+    font-size: 11px;
+    vertical-align: super;
+    color: var(--gold-light);
+  }
+  .brand-sub {
+    font-size: 10px;
+    color: var(--ice);
+    margin-top: 2px;
+    font-weight: 300;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .header-right {
+    text-align: right;
+    font-size: 8px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .header-right strong {
+    color: var(--white);
+    font-size: 9px;
+  }
+  .header-right .ask-badge {
+    display: inline-block;
+    background: var(--gold);
+    color: var(--navy);
+    font-weight: 800;
+    font-size: 9px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-top: 3px;
+    letter-spacing: 0.5px;
+  }
+
+  /* ─── KPI BOX ─────────────────────────────────────────── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 2mm;
+    margin-bottom: 4mm;
+    background: var(--navy-mid);
+    border: 1px solid var(--gold);
+    border-radius: 4px;
+    padding: 3mm;
+  }
+  .kpi-cell {
+    text-align: center;
+    padding: 2mm 1mm;
+    border-right: 1px solid var(--border);
+  }
+  .kpi-cell:last-child { border-right: none; }
+  .kpi-val {
+    font-size: 16px;
+    font-weight: 900;
+    color: var(--gold);
+    line-height: 1;
+    display: block;
+  }
+  .kpi-val.small { font-size: 13px; }
+  .kpi-label {
+    font-size: 7px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 2px;
+    display: block;
+  }
+
+  /* ─── THREE COLUMNS ───────────────────────────────────── */
+  .columns-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 3mm;
+    margin-bottom: 4mm;
+  }
+  .col-card {
+    background: var(--navy-light);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--gold);
+    border-radius: 3px;
+    padding: 3mm;
+  }
+  .col-card h3 {
+    font-size: 9px;
+    color: var(--gold);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 2mm;
+    font-weight: 700;
+  }
+  .col-card p {
+    font-size: 8px;
+    color: var(--ice);
+    line-height: 1.4;
+  }
+  .col-card .highlight {
+    color: var(--gold-light);
+    font-weight: 700;
+  }
+
+  /* ─── TWO-COLUMN BOTTOM ───────────────────────────────── */
+  .bottom-grid {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: 3mm;
+    margin-bottom: 4mm;
+  }
+
+  /* ─── TABLES ──────────────────────────────────────────── */
+  .section-title {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--gold);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 2mm;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1mm;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8px;
+  }
+  thead tr {
+    background: var(--navy-mid);
+  }
+  th {
+    color: var(--gold);
+    font-weight: 700;
+    padding: 2mm 2mm;
+    text-align: left;
+    border: 1px solid var(--border);
+    font-size: 7.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  td {
+    padding: 1.8mm 2mm;
+    border: 1px solid var(--border);
+    color: var(--ice);
+    vertical-align: middle;
+  }
+  tr:nth-child(even) td { background: rgba(255,255,255,0.03); }
+  .td-gold { color: var(--gold); font-weight: 700; }
+  .td-green { color: #4cde8a; font-weight: 700; }
+  .td-center { text-align: center; }
+  .td-right { text-align: right; }
+  .td-highlight {
+    background: rgba(201,168,76,0.12) !important;
+    color: var(--gold-light);
+    font-weight: 700;
+  }
+
+  /* ─── UNIT ECONOMICS / SKIN BOX ──────────────────────── */
+  .box-card {
+    background: var(--navy-light);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 3mm;
+    margin-bottom: 3mm;
+  }
+  .econ-row {
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    padding: 1.2mm 0;
+    font-size: 8px;
+  }
+  .econ-row:last-child { border-bottom: none; }
+  .econ-label { color: var(--muted); }
+  .econ-val { color: var(--gold); font-weight: 700; }
+
+  /* ─── INVEST ASK ──────────────────────────────────────── */
+  .ask-box {
+    background: linear-gradient(135deg, #0d1f3a 0%, #1a2e4a 100%);
+    border: 2px solid var(--gold);
+    border-radius: 4px;
+    padding: 3mm;
+  }
+  .ask-title {
+    font-size: 10px;
+    font-weight: 900;
+    color: var(--gold);
+    margin-bottom: 2mm;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .ask-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2mm;
+  }
+  .ask-item {
+    font-size: 7.5px;
+    color: var(--ice);
+    padding: 1mm 0;
+  }
+  .ask-item strong { color: var(--gold-light); display: block; margin-bottom: 1px; }
+
+  /* ─── FOOTER ──────────────────────────────────────────── */
+  .footer {
+    border-top: 1px solid var(--border);
+    padding-top: 2mm;
+    margin-top: 3mm;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 7px;
+    color: var(--muted);
+  }
+  .footer-tag {
+    color: var(--gold);
+    font-style: italic;
+    font-weight: 600;
+  }
+  .footer .tm { font-size: 6.5px; }
+
+  /* ─── RIGHT SIDE PANELS ───────────────────────────────── */
+  .right-panel { display: flex; flex-direction: column; gap: 3mm; }
+</style>
+</head>
+<body>
+
+<!-- ─── HEADER ──────────────────────────────────────────── -->
+<div class="header">
+  <div class="brand">
+    <div class="brand-name">MatchPro<sup>™</sup></div>
+    <div class="brand-sub">Real Estate Intelligence Platform</div>
+  </div>
+  <div class="header-right">
+    <strong>Mo'men Maisara</strong><br>
+    CEO — Crystal Power Investments<br>
+    mmaisara@crystalpowerinvestment.com<br>
+    <span class="ask-badge">SEEKING $100K–$500K SEED</span>
+  </div>
+</div>
+
+<!-- ─── KPI METRICS ─────────────────────────────────────── -->
+<div class="kpi-grid">
+  <div class="kpi-cell">
+    <span class="kpi-val">7,626</span>
+    <span class="kpi-label">Demand Requests</span>
+  </div>
+  <div class="kpi-cell">
+    <span class="kpi-val">4,000+</span>
+    <span class="kpi-label">Supply Listings</span>
+  </div>
+  <div class="kpi-cell">
+    <span class="kpi-val">56,566</span>
+    <span class="kpi-label">AI Matches Generated</span>
+  </div>
+  <div class="kpi-cell">
+    <span class="kpi-val small">1,438</span>
+    <span class="kpi-label">High-Conf. Leads ≥90%</span>
+  </div>
+  <div class="kpi-cell">
+    <span class="kpi-val">40+</span>
+    <span class="kpi-label">Areas — Greater Cairo</span>
+  </div>
+  <div class="kpi-cell">
+    <span class="kpi-val small">$97.5M</span>
+    <span class="kpi-label">Pipeline Value</span>
+  </div>
+</div>
+
+<!-- ─── THREE COLUMNS ───────────────────────────────────── -->
+<div class="columns-3">
+  <div class="col-card">
+    <h3>⚡ The Problem</h3>
+    <p>
+      <span class="highlight">7,626 buyers</span> are chasing <span class="highlight">4,000 listings</span> — a 
+      <span class="highlight">91% demand surplus</span> the market hasn't quantified. Brokers waste hours daily on 
+      mismatched calls, cold leads, and manual WhatsApp triage. The signal is there. No one is listening.
+    </p>
+  </div>
+  <div class="col-card">
+    <h3>🧠 The Engine</h3>
+    <p>
+      MatchPro™ ingests real-time messages from <span class="highlight">50+ broker WhatsApp channels</span>. 
+      Arabic + English NLP auto-classifies, matches, and ranks demand against supply. 
+      Every <span class="highlight">12 hours, automatically</span> — zero manual input from the broker.
+    </p>
+  </div>
+  <div class="col-card">
+    <h3>💰 The Output</h3>
+    <p>
+      <span class="highlight">27 high-confidence matches (≥90%)</span> per cycle. 
+      One cycle = enough to recover a <span class="highlight">$250K commitment</span> in 
+      the base scenario in <span class="highlight">1.6 months</span>. 
+      Pipeline: EGP 4.87B in verified buyer budgets.
+    </p>
+  </div>
+</div>
+
+<!-- ─── BOTTOM TWO-COLUMN GRID ─────────────────────────── -->
+<div class="bottom-grid">
+
+  <!-- LEFT: ROI + Unit Economics -->
+  <div>
+    <div class="section-title">📊 Three-Scenario ROI Model</div>
+    <table style="margin-bottom:3mm;">
+      <thead>
+        <tr>
+          <th>Scenario</th>
+          <th>Monthly Revenue</th>
+          <th>Recovery of $250K</th>
+          <th>Deals/Mo</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Conservative</td>
+          <td class="td-gold">$23,328</td>
+          <td>10.7 months</td>
+          <td class="td-center">2–3</td>
+        </tr>
+        <tr class="td-highlight">
+          <td class="td-highlight">⭐ Base Case</td>
+          <td class="td-highlight">$156,127</td>
+          <td class="td-highlight">1.6 months</td>
+          <td class="td-center td-highlight">8–12</td>
+        </tr>
+        <tr>
+          <td>Optimistic</td>
+          <td class="td-green">$437,400</td>
+          <td class="td-green">17 days</td>
+          <td class="td-center">20+</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="section-title">🔢 Unit Economics</div>
+    <div class="box-card" style="margin-bottom:0;">
+      <div class="econ-row">
+        <span class="econ-label">Avg Deal Size</span>
+        <span class="econ-val">$116K – $450K</span>
+      </div>
+      <div class="econ-row">
+        <span class="econ-label">Deal Range</span>
+        <span class="econ-val">Madinaty apt → New Cairo villa</span>
+      </div>
+      <div class="econ-row">
+        <span class="econ-label">Commission Rate</span>
+        <span class="econ-val">2 – 2.5% (Egypt standard)</span>
+      </div>
+      <div class="econ-row">
+        <span class="econ-label">Platform Take-Rate</span>
+        <span class="econ-val">30%</span>
+      </div>
+      <div class="econ-row">
+        <span class="econ-label">Net per Deal</span>
+        <span class="econ-val">$720 – $3,375</span>
+      </div>
+      <div class="econ-row">
+        <span class="econ-label">High-Conf. Leads ≥90%</span>
+        <span class="econ-val">1,438 active | 27/cycle</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Skin in Game + Ask -->
+  <div class="right-panel">
+
+    <div>
+      <div class="section-title">🏠 Skin in the Game</div>
+      <div class="box-card">
+        <div class="econ-row">
+          <span class="econ-label">Madinaty Units (×2)</span>
+          <span class="econ-val">Active</span>
+        </div>
+        <div class="econ-row">
+          <span class="econ-label">Privado</span>
+          <span class="econ-val">Portfolio</span>
+        </div>
+        <div class="econ-row">
+          <span class="econ-label">Dreamland</span>
+          <span class="econ-val">Portfolio</span>
+        </div>
+        <div class="econ-row">
+          <span class="econ-label">Clinic (Active Sale)</span>
+          <span class="econ-val">10.39M EGP</span>
+        </div>
+        <div class="econ-row" style="padding-top:2mm;">
+          <span style="font-size:7px; color:var(--ice); font-style:italic;">
+            Operator is an active real estate principal — not just a tech builder.
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="ask-box">
+        <div class="ask-title">💎 Investment Ask</div>
+        <div class="econ-row">
+          <span class="econ-label">Seed Range</span>
+          <span class="econ-val">$100K – $500K</span>
+        </div>
+        <div style="margin-top:2mm; font-size:7.5px; color:var(--muted); margin-bottom:1mm;">Use of Funds:</div>
+        <div class="econ-row">
+          <span class="econ-label">⚙️ Engineering (3 hires)</span>
+          <span class="econ-val">50%</span>
+        </div>
+        <div class="econ-row">
+          <span class="econ-label">📣 Sales Expansion</span>
+          <span class="econ-val">30%</span>
+        </div>
+        <div class="econ-row">
+          <span class="econ-label">🔑 Platform Licensing</span>
+          <span class="econ-val">20%</span>
+        </div>
+        <div style="margin-top:2mm; padding-top:2mm; border-top:1px solid var(--border);">
+          <div class="econ-row">
+            <span class="econ-label">Target — 12 Months</span>
+            <span class="econ-val" style="font-size:9px;">200 brokers</span>
+          </div>
+          <div class="econ-row">
+            <span class="econ-label">License Price</span>
+            <span class="econ-val">$500/mo</span>
+          </div>
+          <div class="econ-row">
+            <span class="econ-label">Target MRR Month 12</span>
+            <span class="econ-val" style="color:#4cde8a; font-size:10px;">$100K MRR</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ─── FOOTER ──────────────────────────────────────────── -->
+<div class="footer">
+  <span class="footer-tag">"The market is talking — are you listening?"</span>
+  <span class="tm">MatchPro™ is a trademark of Crystal Power Investments</span>
+  <span>mmaisara@crystalpowerinvestment.com | May 2026</span>
+</div>
+
+</body>
+</html>

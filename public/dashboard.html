@@ -1,0 +1,1612 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MatchPro™ Intelligence Engine — Crystal Power Investments</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --card2: #162032;
+    --border: #334155;
+    --blue: #3b82f6;
+    --green: #10b981;
+    --amber: #f59e0b;
+    --red: #ef4444;
+    --purple: #8b5cf6;
+    --cyan: #06b6d4;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --dim: #64748b;
+    --success: #22c55e;
+    --radius: 12px;
+    --shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', 'Cairo', 'Tahoma', Arial, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--card); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* HEADER */
+  #header {
+    background: linear-gradient(135deg, #0f172a 0%, #1a2744 50%, #0f1f3d 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .logo-section {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .logo-icon {
+    width: 46px;
+    height: 46px;
+    background: linear-gradient(135deg, var(--blue), var(--purple));
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    box-shadow: 0 0 20px rgba(59,130,246,0.4);
+    flex-shrink: 0;
+  }
+
+  .logo-text h1 {
+    font-size: 20px;
+    font-weight: 700;
+    background: linear-gradient(90deg, #fff, #93c5fd);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.3px;
+  }
+
+  .logo-text p {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 1px;
+  }
+
+  .header-center {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .live-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(16,185,129,0.1);
+    border: 1px solid rgba(16,185,129,0.3);
+    border-radius: 20px;
+    padding: 5px 12px;
+    font-size: 12px;
+    color: var(--green);
+    font-weight: 600;
+  }
+
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: pulse-dot 1.5s infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+  }
+
+  .header-clock {
+    font-size: 13px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    direction: ltr;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .lang-toggle {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 5px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .lang-toggle:hover { border-color: var(--blue); color: var(--blue); }
+
+  .refresh-info {
+    font-size: 11px;
+    color: var(--dim);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  #countdown {
+    color: var(--amber);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* MAIN LAYOUT */
+  main {
+    padding: 20px 24px;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  /* SECTION HEADER */
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    margin-top: 28px;
+  }
+
+  .section-header h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* KPI GRID */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px;
+    margin-bottom: 6px;
+  }
+
+  .kpi-card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+    cursor: default;
+  }
+
+  .kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow);
+    border-color: var(--accent, var(--blue));
+  }
+
+  .kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--accent, var(--blue));
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+
+  .kpi-card.accent-green { --accent: var(--green); }
+  .kpi-card.accent-amber { --accent: var(--amber); }
+  .kpi-card.accent-red { --accent: var(--red); }
+  .kpi-card.accent-purple { --accent: var(--purple); }
+  .kpi-card.accent-cyan { --accent: var(--cyan); }
+
+  .kpi-label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .kpi-value {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1;
+    margin-bottom: 8px;
+    font-variant-numeric: tabular-nums;
+    direction: ltr;
+    text-align: right;
+  }
+
+  .kpi-trend {
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .trend-up { color: var(--green); }
+  .trend-neutral { color: var(--muted); }
+
+  .kpi-loading {
+    width: 60px;
+    height: 32px;
+    background: var(--border);
+    border-radius: 6px;
+    animation: shimmer 1.5s infinite;
+    margin-bottom: 8px;
+  }
+
+  @keyframes shimmer {
+    0% { opacity: 0.5; }
+    50% { opacity: 1; }
+    100% { opacity: 0.5; }
+  }
+
+  /* ACTION BUTTONS */
+  .actions-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 20px 0;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--blue), #1d4ed8);
+    color: white;
+    box-shadow: 0 2px 12px rgba(59,130,246,0.3);
+  }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(59,130,246,0.5); }
+
+  .btn-green {
+    background: linear-gradient(135deg, var(--green), #059669);
+    color: white;
+    box-shadow: 0 2px 12px rgba(16,185,129,0.3);
+  }
+  .btn-green:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(16,185,129,0.5); }
+
+  .btn-amber {
+    background: linear-gradient(135deg, var(--amber), #d97706);
+    color: white;
+    box-shadow: 0 2px 12px rgba(245,158,11,0.3);
+  }
+  .btn-amber:hover { transform: translateY(-1px); }
+
+  .btn-outline {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .btn-outline:hover { border-color: var(--blue); color: var(--blue); }
+
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
+
+  /* GRID LAYOUTS */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+  @media (max-width: 1100px) {
+    .two-col { grid-template-columns: 1fr; }
+    .three-col { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 700px) {
+    .three-col { grid-template-columns: 1fr; }
+    main { padding: 12px; }
+    #header { padding: 10px 12px; }
+    .kpi-value { font-size: 26px; }
+  }
+
+  /* CARD */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .card-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .card-body { padding: 16px 18px; }
+
+  /* TABLES */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .data-table th {
+    text-align: right;
+    padding: 8px 12px;
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  .data-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(51,65,85,0.5);
+    vertical-align: middle;
+  }
+
+  .data-table tr:last-child td { border-bottom: none; }
+
+  .data-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .table-wrap {
+    overflow-x: auto;
+    max-height: 420px;
+    overflow-y: auto;
+  }
+
+  .table-wrap.short { max-height: 320px; }
+
+  /* BADGES */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .badge-green { background: rgba(16,185,129,0.15); color: var(--green); border: 1px solid rgba(16,185,129,0.25); }
+  .badge-yellow { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid rgba(245,158,11,0.25); }
+  .badge-red { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.25); }
+  .badge-blue { background: rgba(59,130,246,0.15); color: var(--blue); border: 1px solid rgba(59,130,246,0.25); }
+  .badge-purple { background: rgba(139,92,246,0.15); color: var(--purple); border: 1px solid rgba(139,92,246,0.25); }
+  .badge-cyan { background: rgba(6,182,212,0.15); color: var(--cyan); border: 1px solid rgba(6,182,212,0.25); }
+
+  /* SCORE BAR */
+  .score-bar-wrap { display: flex; align-items: center; gap: 8px; min-width: 100px; }
+  .score-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .score-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+
+  /* SEARCH BAR */
+  .search-bar {
+    background: var(--card2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 13px;
+    outline: none;
+    width: 220px;
+    direction: rtl;
+  }
+
+  .search-bar:focus { border-color: var(--blue); }
+  .search-bar::placeholder { color: var(--dim); }
+
+  /* CHART CONTAINER */
+  .chart-container {
+    position: relative;
+    width: 100%;
+  }
+
+  .chart-container canvas { max-width: 100%; }
+
+  /* ASSET CARDS */
+  .asset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+  }
+
+  .asset-card {
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .asset-card:hover { border-color: var(--blue); }
+
+  .asset-code {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 600;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+
+  .asset-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+
+  .asset-details {
+    font-size: 11px;
+    color: var(--dim);
+    line-height: 1.7;
+  }
+
+  .asset-leads {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .asset-leads-count {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--blue);
+    direction: ltr;
+  }
+
+  .asset-leads-label { font-size: 11px; color: var(--muted); }
+
+  /* FEED */
+  .demand-feed {
+    max-height: 380px;
+    overflow-y: auto;
+  }
+
+  .feed-item {
+    padding: 12px 4px;
+    border-bottom: 1px solid rgba(51,65,85,0.4);
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 10px;
+    align-items: start;
+  }
+
+  .feed-item:last-child { border-bottom: none; }
+
+  .feed-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--blue), var(--purple));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+    color: white;
+  }
+
+  .feed-content { min-width: 0; }
+
+  .feed-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .feed-detail { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+
+  .feed-time { font-size: 11px; color: var(--dim); white-space: nowrap; direction: ltr; }
+
+  /* WA LINK */
+  .wa-link {
+    color: var(--green);
+    text-decoration: none;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    white-space: nowrap;
+  }
+
+  .wa-link:hover { text-decoration: underline; }
+
+  /* STATUS */
+  .status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    margin-left: 4px;
+  }
+
+  /* TOAST */
+  #toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 22px;
+    font-size: 13px;
+    color: var(--text);
+    z-index: 9999;
+    transition: transform 0.3s;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+  }
+
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.success { border-color: var(--green); }
+  #toast.error { border-color: var(--red); }
+
+  /* EMPTY STATE */
+  .empty { text-align: center; padding: 40px; color: var(--dim); font-size: 13px; }
+
+  /* COPY BTN */
+  .copy-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .copy-btn:hover { border-color: var(--blue); color: var(--blue); }
+
+  /* TREND SPARKLINE placeholder */
+  .mini-chart { display: inline-block; width: 60px; height: 24px; vertical-align: middle; }
+
+  /* PROGRESS RING */
+  .ring-wrap { display: flex; align-items: center; gap: 12px; justify-content: center; padding: 8px 0; }
+
+  /* Area badges */
+  .area-bar {
+    height: 6px;
+    background: linear-gradient(90deg, var(--blue), var(--purple));
+    border-radius: 3px;
+    transition: width 0.6s ease;
+  }
+
+  .loading-overlay {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: var(--muted);
+    font-size: 13px;
+    gap: 8px;
+  }
+
+  .spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border);
+    border-top-color: var(--blue);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* score number small */
+  .score-num {
+    font-size: 12px;
+    font-weight: 700;
+    min-width: 34px;
+    text-align: center;
+    direction: ltr;
+  }
+
+  /* phone style in table */
+  .phone-cell { direction: ltr; white-space: nowrap; }
+
+  /* Divider line */
+  .divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header id="header">
+  <div class="logo-section">
+    <div class="logo-icon">💎</div>
+    <div class="logo-text">
+      <h1 id="brand-title">MatchPro™ Intelligence Engine</h1>
+      <p id="brand-sub">Crystal Power Investments — Dashboard</p>
+    </div>
+  </div>
+
+  <div class="header-center">
+    <div class="live-badge">
+      <span class="live-dot"></span>
+      <span id="live-label">مباشر</span>
+    </div>
+    <div class="header-clock" id="clock">--:--:--</div>
+    <div class="refresh-info">
+      <span id="refresh-label">تحديث في</span>
+      <span id="countdown">5:00</span>
+    </div>
+  </div>
+
+  <div class="header-right">
+    <button class="lang-toggle" onclick="toggleLang()">EN / عربي</button>
+    <span style="font-size:11px; color: var(--dim);" id="last-updated-header">—</span>
+  </div>
+</header>
+
+<!-- MAIN -->
+<main>
+
+  <!-- ACTION BUTTONS -->
+  <div class="actions-row" style="margin-top:4px;">
+    <button class="btn btn-primary" id="btn-refresh" onclick="refreshAll()">🔃 <span data-ar="تحديث البيانات" data-en="Refresh Data">تحديث البيانات</span></button>
+    <button class="btn btn-green" id="btn-match" onclick="runMatching()">⚡ <span data-ar="تشغيل المطابقة الآن" data-en="Run Matching Now">تشغيل المطابقة الآن</span></button>
+    <button class="btn btn-amber" id="btn-report" onclick="generateReport()">📊 <span data-ar="تصدير تقرير Excel" data-en="Export Excel Report">تصدير تقرير Excel</span></button>
+  </div>
+
+  <!-- KPI SECTION -->
+  <div class="section-header">
+    <h2>📈 <span data-ar="المؤشرات الرئيسية" data-en="Key Performance Indicators">المؤشرات الرئيسية</span></h2>
+    <span id="stats-updated" style="font-size:11px; color:var(--dim);">—</span>
+  </div>
+
+  <div class="kpi-grid" id="kpi-grid">
+    <div class="kpi-card" id="kpi-messages">
+      <div class="kpi-label">💬 <span data-ar="إجمالي الرسائل" data-en="Total Messages">إجمالي الرسائل</span></div>
+      <div class="kpi-loading"></div>
+      <div class="kpi-trend trend-neutral">—</div>
+    </div>
+    <div class="kpi-card accent-green" id="kpi-supply">
+      <div class="kpi-label">🏠 <span data-ar="عروض العقارات" data-en="Supply Listings">عروض العقارات</span></div>
+      <div class="kpi-loading"></div>
+      <div class="kpi-trend trend-neutral">—</div>
+    </div>
+    <div class="kpi-card accent-amber" id="kpi-demand">
+      <div class="kpi-label">🔍 <span data-ar="طلبات الشراء" data-en="Demand Requests">طلبات الشراء</span></div>
+      <div class="kpi-loading"></div>
+      <div class="kpi-trend trend-neutral">—</div>
+    </div>
+    <div class="kpi-card accent-purple" id="kpi-matches">
+      <div class="kpi-label">🎯 <span data-ar="إجمالي المطابقات" data-en="Total Matches">إجمالي المطابقات</span></div>
+      <div class="kpi-loading"></div>
+      <div class="kpi-trend trend-neutral">—</div>
+    </div>
+    <div class="kpi-card accent-cyan" id="kpi-rate">
+      <div class="kpi-label">📊 <span data-ar="معدل المطابقة" data-en="Match Rate">معدل المطابقة</span></div>
+      <div class="kpi-loading"></div>
+      <div class="kpi-trend trend-neutral">—</div>
+    </div>
+    <div class="kpi-card accent-red" id="kpi-assets">
+      <div class="kpi-label">🏢 <span data-ar="أصول CPI" data-en="CPI Assets">أصول CPI</span></div>
+      <div class="kpi-loading"></div>
+      <div class="kpi-trend trend-neutral">—</div>
+    </div>
+  </div>
+
+  <!-- CHARTS ROW -->
+  <div class="section-header">
+    <h2>📊 <span data-ar="التحليلات والرسوم البيانية" data-en="Analytics & Charts">التحليلات والرسوم البيانية</span></h2>
+  </div>
+
+  <div class="two-col">
+    <!-- Match Score Distribution -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🎯 <span data-ar="توزيع درجات المطابقة" data-en="Match Score Distribution">توزيع درجات المطابقة</span></span>
+      </div>
+      <div class="card-body">
+        <div class="chart-container" style="height:260px; display:flex; align-items:center; justify-content:center;">
+          <canvas id="scoreChart"></canvas>
+        </div>
+        <div id="score-legend" style="display:flex; gap:16px; flex-wrap:wrap; justify-content:center; margin-top:12px; font-size:12px;"></div>
+      </div>
+    </div>
+
+    <!-- Supply vs Demand by Area -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">📍 <span data-ar="العرض والطلب حسب المنطقة" data-en="Supply & Demand by Area">العرض والطلب حسب المنطقة</span></span>
+      </div>
+      <div class="card-body">
+        <div class="chart-container" style="height:280px;">
+          <canvas id="areaChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AREA BREAKDOWN TABLE -->
+  <div class="section-header">
+    <h2>🗺️ <span data-ar="توزيع المناطق" data-en="Area Breakdown">توزيع المناطق</span></h2>
+    <button class="copy-btn" onclick="copyTable('area-table')">📋 <span data-ar="نسخ CSV" data-en="Copy CSV">نسخ CSV</span></button>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap short">
+      <table class="data-table" id="area-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th data-ar="المنطقة" data-en="Area">المنطقة</th>
+            <th data-ar="الطلب" data-en="Demand">الطلب</th>
+            <th data-ar="العرض" data-en="Supply">العرض</th>
+            <th data-ar="معدل الطلب" data-en="Demand Rate">معدل الطلب</th>
+          </tr>
+        </thead>
+        <tbody id="area-tbody">
+          <tr><td colspan="5"><div class="loading-overlay"><span class="spinner"></span> <span data-ar="جار التحميل..." data-en="Loading...">جار التحميل...</span></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- HIGH VALUE MATCHES TABLE -->
+  <div class="section-header">
+    <h2>🔥 <span data-ar="أفضل المطابقات عالية القيمة" data-en="Top High-Value Matches">أفضل المطابقات عالية القيمة</span></h2>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <input type="text" class="search-bar" id="match-search" placeholder="🔍 بحث في المطابقات..." oninput="filterMatches(this.value)">
+      <button class="copy-btn" onclick="copyTable('matches-table')">📋 CSV</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table class="data-table" id="matches-table">
+        <thead>
+          <tr>
+            <th data-ar="الدرجة" data-en="Score">الدرجة</th>
+            <th data-ar="منطقة المشتري" data-en="Buyer Area">منطقة المشتري</th>
+            <th data-ar="منطقة البائع" data-en="Seller Area">منطقة البائع</th>
+            <th data-ar="نوع العقار" data-en="Type">نوع العقار</th>
+            <th data-ar="السعر" data-en="Price">السعر</th>
+            <th data-ar="البائع" data-en="Seller">البائع</th>
+            <th data-ar="المشتري" data-en="Buyer">المشتري</th>
+            <th data-ar="تواصل" data-en="Contact">تواصل</th>
+          </tr>
+        </thead>
+        <tbody id="matches-tbody">
+          <tr><td colspan="8"><div class="loading-overlay"><span class="spinner"></span> <span data-ar="جار التحميل..." data-en="Loading...">جار التحميل...</span></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- BOTTOM ROW: ASSETS + FEED -->
+  <div class="section-header">
+    <h2>🏢 <span data-ar="أصول Crystal Power" data-en="Crystal Power Assets">أصول Crystal Power</span></h2>
+  </div>
+
+  <div id="assets-grid" class="asset-grid">
+    <div class="card" style="padding:40px; text-align:center; color:var(--dim);">
+      <div class="spinner" style="margin: 0 auto 12px;"></div>
+      <span data-ar="جار تحميل الأصول..." data-en="Loading assets...">جار تحميل الأصول...</span>
+    </div>
+  </div>
+
+  <div class="section-header">
+    <h2>📨 <span data-ar="آخر طلبات الشراء" data-en="Recent Demand Feed">آخر طلبات الشراء</span></h2>
+    <button class="copy-btn" onclick="copyFeed()">📋 <span data-ar="نسخ" data-en="Copy">نسخ</span></button>
+  </div>
+
+  <div class="card">
+    <div class="demand-feed" id="demand-feed">
+      <div class="loading-overlay"><span class="spinner"></span> <span data-ar="جار التحميل..." data-en="Loading...">جار التحميل...</span></div>
+    </div>
+  </div>
+
+  <div style="height:40px;"></div>
+</main>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+let isArabic = true;
+let statsData = null;
+let matchesData = [];
+let demandData = [];
+let supplyData = [];
+let assetsData = [];
+let filteredMatches = [];
+let scoreChart = null;
+let areaChart = null;
+let countdownSec = 300;
+let countdownTimer = null;
+
+// ═══════════════════════════════════════════════════════════════
+// LANGUAGE TOGGLE
+// ═══════════════════════════════════════════════════════════════
+function toggleLang() {
+  isArabic = !isArabic;
+  document.documentElement.lang = isArabic ? 'ar' : 'en';
+  document.documentElement.dir = isArabic ? 'rtl' : 'ltr';
+  document.querySelectorAll('[data-ar]').forEach(el => {
+    el.textContent = isArabic ? el.dataset.ar : el.dataset.en;
+  });
+  document.querySelectorAll('[data-ar-placeholder]').forEach(el => {
+    el.placeholder = isArabic ? el.dataset.arPlaceholder : el.dataset.enPlaceholder;
+  });
+  document.getElementById('brand-title').textContent = isArabic
+    ? 'محرك MatchPro™ للذكاء الاصطناعي'
+    : 'MatchPro™ Intelligence Engine';
+  document.getElementById('brand-sub').textContent = isArabic
+    ? 'Crystal Power Investments — لوحة التحكم'
+    : 'Crystal Power Investments — Dashboard';
+  if (isArabic) {
+    document.getElementById('match-search').placeholder = '🔍 بحث في المطابقات...';
+  } else {
+    document.getElementById('match-search').placeholder = '🔍 Search matches...';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CLOCK
+// ═══════════════════════════════════════════════════════════════
+function updateClock() {
+  const now = new Date();
+  const cairo = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
+  const h = String(cairo.getHours()).padStart(2, '0');
+  const m = String(cairo.getMinutes()).padStart(2, '0');
+  const s = String(cairo.getSeconds()).padStart(2, '0');
+  document.getElementById('clock').textContent = `${h}:${m}:${s} Cairo`;
+}
+
+setInterval(updateClock, 1000);
+updateClock();
+
+// ═══════════════════════════════════════════════════════════════
+// COUNTDOWN
+// ═══════════════════════════════════════════════════════════════
+function startCountdown() {
+  countdownSec = 300;
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    countdownSec--;
+    if (countdownSec <= 0) {
+      refreshAll();
+      return;
+    }
+    const m = Math.floor(countdownSec / 60);
+    const s = countdownSec % 60;
+    document.getElementById('countdown').textContent = `${m}:${String(s).padStart(2,'0')}`;
+  }, 1000);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FORMAT HELPERS
+// ═══════════════════════════════════════════════════════════════
+function fmt(n) {
+  if (n == null) return '—';
+  return Number(n).toLocaleString('ar-EG');
+}
+
+function fmtEn(n) {
+  if (n == null) return '—';
+  return Number(n).toLocaleString('en-US');
+}
+
+function fmtPrice(p) {
+  if (!p || p === 0) return '—';
+  if (p >= 1000000) return (p / 1000000).toFixed(1) + 'M';
+  if (p >= 1000) return (p / 1000).toFixed(0) + 'K';
+  return p.toString();
+}
+
+function relTime(dateStr) {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr);
+    const diff = Date.now() - d.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  } catch { return '—'; }
+}
+
+function scoreClass(s) {
+  if (s >= 90) return 'badge-green';
+  if (s >= 70) return 'badge-yellow';
+  if (s >= 50) return 'badge-blue';
+  return 'badge-red';
+}
+
+function scoreLabel(s) {
+  if (s >= 90) return '🔥';
+  if (s >= 70) return '✅';
+  if (s >= 50) return '⚠️';
+  return '❄️';
+}
+
+function scoreColor(s) {
+  if (s >= 90) return '#10b981';
+  if (s >= 70) return '#f59e0b';
+  if (s >= 50) return '#3b82f6';
+  return '#ef4444';
+}
+
+function initials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(' ');
+  return parts.length >= 2
+    ? (parts[0][0] + parts[1][0]).toUpperCase()
+    : name[0].toUpperCase();
+}
+
+function waLink(phone) {
+  if (!phone) return null;
+  const clean = phone.replace('@c.us', '').replace(/[^0-9]/g, '');
+  if (!clean) return null;
+  return `https://wa.me/${clean}`;
+}
+
+function showToast(msg, type = 'info') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `show ${type}`;
+  setTimeout(() => { t.className = ''; }, 3500);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ANIMATED COUNTER
+// ═══════════════════════════════════════════════════════════════
+function animateCounter(el, target, duration = 800) {
+  let start = null;
+  const startVal = 0;
+  function step(ts) {
+    if (!start) start = ts;
+    const pct = Math.min((ts - start) / duration, 1);
+    const ease = 1 - Math.pow(1 - pct, 3);
+    const val = Math.floor(startVal + (target - startVal) * ease);
+    el.textContent = Number(val).toLocaleString('ar-EG');
+    if (pct < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// KPI RENDER
+// ═══════════════════════════════════════════════════════════════
+function renderKPI(data) {
+  const t = data.totals;
+  const matchRate = t.demand > 0 ? ((t.matches / t.demand) * 100).toFixed(1) : 0;
+
+  function setCard(id, value, trendHtml) {
+    const card = document.getElementById(id);
+    let valEl = card.querySelector('.kpi-value');
+    if (!valEl) {
+      card.querySelector('.kpi-loading')?.remove();
+      valEl = document.createElement('div');
+      valEl.className = 'kpi-value';
+      card.insertBefore(valEl, card.querySelector('.kpi-trend'));
+    }
+    animateCounter(valEl, value);
+    const tr = card.querySelector('.kpi-trend');
+    if (tr) tr.innerHTML = trendHtml;
+  }
+
+  setCard('kpi-messages', t.messages, `<span class="trend-neutral">📩 ${isArabic ? 'كل الرسائل المعالجة' : 'All processed messages'}</span>`);
+  setCard('kpi-supply', t.supply, `<span class="trend-up">🏠 ${isArabic ? 'عقارات معروضة' : 'Listed properties'}</span>`);
+  setCard('kpi-demand', t.demand, `<span class="trend-up">🔍 ${isArabic ? 'طلبات نشطة' : 'Active requests'}</span>`);
+  setCard('kpi-matches', t.matches, `<span class="trend-up">🎯 ${isArabic ? 'مطابقات ذكية' : 'Smart matches'}</span>`);
+
+  // Match rate needs special handling
+  const rateCard = document.getElementById('kpi-rate');
+  let rateEl = rateCard.querySelector('.kpi-value');
+  if (!rateEl) {
+    rateCard.querySelector('.kpi-loading')?.remove();
+    rateEl = document.createElement('div');
+    rateEl.className = 'kpi-value';
+    rateCard.insertBefore(rateEl, rateCard.querySelector('.kpi-trend'));
+  }
+  rateEl.textContent = matchRate + '%';
+  const rateT = rateCard.querySelector('.kpi-trend');
+  if (rateT) rateT.innerHTML = `<span class="trend-up">📈 ${isArabic ? 'مطابقات / طلبات' : 'Matches / Demand'}</span>`;
+
+  setCard('kpi-assets', t.assets || 0, `<span class="trend-neutral">🏢 ${isArabic ? 'عقارات CPI' : 'CPI properties'}</span>`);
+
+  const ts = new Date(data.timestamp);
+  const timeStr = ts.toLocaleTimeString('ar-EG', { timeZone: 'Africa/Cairo' });
+  document.getElementById('stats-updated').textContent = (isArabic ? 'آخر تحديث: ' : 'Last update: ') + timeStr;
+  document.getElementById('last-updated-header').textContent = timeStr;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SCORE DISTRIBUTION CHART
+// ═══════════════════════════════════════════════════════════════
+function renderScoreChart(rows) {
+  const buckets = { hot: 0, good: 0, moderate: 0, cold: 0 };
+  rows.forEach(r => {
+    const s = r.match_score || 0;
+    if (s >= 90) buckets.hot++;
+    else if (s >= 70) buckets.good++;
+    else if (s >= 50) buckets.moderate++;
+    else buckets.cold++;
+  });
+
+  const labels = [
+    isArabic ? '🔥 ممتاز (90-100%)' : '🔥 Hot (90-100%)',
+    isArabic ? '✅ جيد (70-89%)' : '✅ Good (70-89%)',
+    isArabic ? '⚠️ متوسط (50-69%)' : '⚠️ Moderate (50-69%)',
+    isArabic ? '❄️ ضعيف (<50%)' : '❄️ Cold (<50%)',
+  ];
+  const values = [buckets.hot, buckets.good, buckets.moderate, buckets.cold];
+  const colors = ['#10b981', '#f59e0b', '#3b82f6', '#ef4444'];
+
+  const ctx = document.getElementById('scoreChart').getContext('2d');
+  if (scoreChart) scoreChart.destroy();
+
+  scoreChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors,
+        borderColor: '#1e293b',
+        borderWidth: 3,
+        hoverOffset: 8
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ` ${ctx.label}: ${ctx.raw.toLocaleString('ar-EG')} (${((ctx.raw / values.reduce((a,b) => a+b, 0)) * 100).toFixed(1)}%)`
+          }
+        }
+      },
+      cutout: '68%'
+    }
+  });
+
+  const legend = document.getElementById('score-legend');
+  legend.innerHTML = labels.map((l, i) => `
+    <div style="display:flex; align-items:center; gap:6px;">
+      <span style="width:10px; height:10px; background:${colors[i]}; border-radius:3px; flex-shrink:0;"></span>
+      <span style="color:var(--muted);">${l}</span>
+      <strong style="color:var(--text);">${values[i].toLocaleString('ar-EG')}</strong>
+    </div>
+  `).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AREA CHART
+// ═══════════════════════════════════════════════════════════════
+function renderAreaChart(demandRows, supplyRows) {
+  const demandByArea = {};
+  const supplyByArea = {};
+
+  demandRows.forEach(r => {
+    const loc = r.location || r.area || r.city || 'غير محدد';
+    demandByArea[loc] = (demandByArea[loc] || 0) + 1;
+  });
+
+  supplyRows.forEach(r => {
+    const loc = r.location || r.area || r.city || 'غير محدد';
+    supplyByArea[loc] = (supplyByArea[loc] || 0) + 1;
+  });
+
+  const topAreas = Object.entries(demandByArea)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([area]) => area);
+
+  const dVals = topAreas.map(a => demandByArea[a] || 0);
+  const sVals = topAreas.map(a => supplyByArea[a] || 0);
+
+  const ctx = document.getElementById('areaChart').getContext('2d');
+  if (areaChart) areaChart.destroy();
+
+  areaChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: topAreas,
+      datasets: [
+        {
+          label: isArabic ? 'الطلب' : 'Demand',
+          data: dVals,
+          backgroundColor: 'rgba(16,185,129,0.7)',
+          borderColor: '#10b981',
+          borderWidth: 1,
+          borderRadius: 4
+        },
+        {
+          label: isArabic ? 'العرض' : 'Supply',
+          data: sVals,
+          backgroundColor: 'rgba(59,130,246,0.7)',
+          borderColor: '#3b82f6',
+          borderWidth: 1,
+          borderRadius: 4
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          labels: { color: '#94a3b8', font: { size: 12 } }
+        },
+        tooltip: { mode: 'index', intersect: false }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#94a3b8', font: { size: 11 }, maxRotation: 40 },
+          grid: { color: 'rgba(51,65,85,0.4)' }
+        },
+        y: {
+          ticks: { color: '#94a3b8', font: { size: 11 } },
+          grid: { color: 'rgba(51,65,85,0.4)' }
+        }
+      }
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AREA TABLE
+// ═══════════════════════════════════════════════════════════════
+function renderAreaTable(demandRows, supplyRows) {
+  const demandByArea = {};
+  const supplyByArea = {};
+
+  demandRows.forEach(r => {
+    const loc = r.location || r.area || r.city || 'غير محدد';
+    demandByArea[loc] = (demandByArea[loc] || 0) + 1;
+  });
+
+  supplyRows.forEach(r => {
+    const loc = r.location || r.area || r.city || 'غير محدد';
+    supplyByArea[loc] = (supplyByArea[loc] || 0) + 1;
+  });
+
+  const allAreas = new Set([...Object.keys(demandByArea), ...Object.keys(supplyByArea)]);
+  const sorted = [...allAreas]
+    .map(area => ({
+      area,
+      demand: demandByArea[area] || 0,
+      supply: supplyByArea[area] || 0
+    }))
+    .sort((a, b) => b.demand - a.demand)
+    .slice(0, 15);
+
+  const maxDemand = Math.max(...sorted.map(r => r.demand), 1);
+
+  const tbody = document.getElementById('area-tbody');
+  tbody.innerHTML = sorted.map((row, i) => `
+    <tr>
+      <td style="color:var(--dim); font-size:12px;">${i + 1}</td>
+      <td><strong>${row.area}</strong></td>
+      <td>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="color:var(--green); font-weight:700; min-width:30px; direction:ltr;">${row.demand}</span>
+          <div style="flex:1; min-width:60px; height:5px; background:var(--border); border-radius:3px; overflow:hidden;">
+            <div style="height:100%; width:${(row.demand / maxDemand * 100).toFixed(0)}%; background:var(--green); border-radius:3px;"></div>
+          </div>
+        </div>
+      </td>
+      <td><span style="color:var(--blue); font-weight:600; direction:ltr;">${row.supply}</span></td>
+      <td>
+        ${row.demand > 0
+          ? `<span class="badge ${row.supply / row.demand > 0.8 ? 'badge-green' : row.supply / row.demand > 0.4 ? 'badge-yellow' : 'badge-red'}">
+              ${((row.supply / row.demand) * 100).toFixed(0)}%
+            </span>`
+          : '<span style="color:var(--dim);">—</span>'
+        }
+      </td>
+    </tr>
+  `).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MATCHES TABLE
+// ═══════════════════════════════════════════════════════════════
+function renderMatchesTable(rows) {
+  filteredMatches = rows;
+  updateMatchesTable(rows);
+}
+
+function updateMatchesTable(rows) {
+  const tbody = document.getElementById('matches-tbody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="8"><div class="empty">لا توجد مطابقات</div></td></tr>';
+    return;
+  }
+
+  const top = rows.slice(0, 50);
+  tbody.innerHTML = top.map(r => {
+    const score = r.match_score || 0;
+    const wa = waLink(r.supply_phone || r.demand_phone);
+    const phone = (r.supply_phone || '').replace('@c.us', '');
+    return `
+      <tr>
+        <td>
+          <span class="badge ${scoreClass(score)}">
+            ${scoreLabel(score)} ${score}%
+          </span>
+        </td>
+        <td>${r.demand_location || '—'}</td>
+        <td>${r.supply_location || '—'}</td>
+        <td>
+          <span class="badge badge-blue" style="font-size:11px;">
+            ${r.supply_property_type || '—'}
+          </span>
+        </td>
+        <td style="direction:ltr; text-align:right;">
+          ${r.supply_price ? '<strong>' + fmtPrice(r.supply_price) + ' EGP</strong>' : '—'}
+        </td>
+        <td>${r.supply_name || '—'}</td>
+        <td>${r.demand_name || '—'}</td>
+        <td>
+          ${wa ? `<a href="${wa}" class="wa-link" target="_blank" rel="noopener">📱 WhatsApp</a>` : '<span style="color:var(--dim);">—</span>'}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function filterMatches(q) {
+  if (!q.trim()) {
+    updateMatchesTable(filteredMatches);
+    return;
+  }
+  const low = q.toLowerCase();
+  const filtered = filteredMatches.filter(r =>
+    (r.demand_location || '').toLowerCase().includes(low) ||
+    (r.supply_location || '').toLowerCase().includes(low) ||
+    (r.supply_property_type || '').toLowerCase().includes(low) ||
+    (r.supply_name || '').toLowerCase().includes(low) ||
+    (r.demand_name || '').toLowerCase().includes(low) ||
+    String(r.match_score || '').includes(low)
+  );
+  updateMatchesTable(filtered);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ASSETS
+// ═══════════════════════════════════════════════════════════════
+function renderAssets(assets) {
+  const grid = document.getElementById('assets-grid');
+  if (!assets.length) {
+    grid.innerHTML = '<div class="empty">لا توجد أصول</div>';
+    return;
+  }
+
+  grid.innerHTML = assets.map(a => {
+    const typeLabel = { apartment: '🏠 شقة', villa: '🏡 فيلا', land: '🌍 أرض', office: '🏢 مكتب' }[a.property_type] || a.property_type || '🏠';
+    const txLabel = { sale: 'بيع', rent: 'إيجار', rent_sale: 'بيع / إيجار' }[a.transaction_type] || a.transaction_type || '—';
+    const statusColor = a.status === 'available' ? 'badge-green' : 'badge-yellow';
+    const statusLabel = a.status === 'available' ? (isArabic ? 'متاح' : 'Available') : a.status;
+
+    return `
+      <div class="asset-card">
+        <div class="asset-code">${a.asset_code}</div>
+        <div class="asset-name">${typeLabel} — ${a.location}${a.district ? ' / ' + a.district : ''}</div>
+        <div class="asset-details">
+          📐 ${a.size_sqm || '—'} م² &nbsp;|&nbsp;
+          🛏 ${a.bedrooms || '—'} غرف &nbsp;|&nbsp;
+          🚿 ${a.bathrooms || '—'} حمام
+          <br>
+          💰 ${fmtPrice(a.price)} EGP / ${isArabic ? txLabel : a.transaction_type}
+          <br>
+          <span class="badge ${statusColor}" style="margin-top:4px; display:inline-flex;">${statusLabel}</span>
+        </div>
+        <div class="asset-leads">
+          <div>
+            <div class="asset-leads-count">${(a.lead_count || 0).toLocaleString('ar-EG')}</div>
+            <div class="asset-leads-label">${isArabic ? 'طلب متوافق' : 'Matching leads'}</div>
+          </div>
+          <div style="font-size:22px; opacity:0.4;">🎯</div>
+        </div>
+        ${a.owner_notes ? `<div style="margin-top:8px; font-size:11px; color:var(--dim); line-height:1.5;">${a.owner_notes}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DEMAND FEED
+// ═══════════════════════════════════════════════════════════════
+function renderDemandFeed(rows) {
+  const feed = document.getElementById('demand-feed');
+  if (!rows.length) {
+    feed.innerHTML = '<div class="empty">لا توجد طلبات حديثة</div>';
+    return;
+  }
+
+  const top15 = rows.slice(0, 15);
+  feed.innerHTML = top15.map(r => {
+    const name = r.sender_name || r.demand_name || 'غير معروف';
+    const loc = r.location || r.area || r.city || '—';
+    const typeLabel = r.property_type || r.purpose || '—';
+    const price = r.price_max || r.price_min || null;
+    const wa = waLink(r.sender_phone);
+
+    return `
+      <div class="feed-item">
+        <div class="feed-avatar">${initials(name)}</div>
+        <div class="feed-content">
+          <div class="feed-name">${name}</div>
+          <div class="feed-detail">📍 ${loc} &nbsp;·&nbsp; 🏠 ${typeLabel} ${price ? '&nbsp;·&nbsp; 💰 ' + fmtPrice(price) + ' EGP' : ''}</div>
+          <div class="feed-detail" style="font-size:11px; color:var(--dim); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:400px;">${(r.raw_message || r.demand_message || '').substring(0, 100)}...</div>
+        </div>
+        <div style="text-align:left; flex-shrink:0;">
+          <div class="feed-time">${relTime(r.created_at)}</div>
+          ${wa ? `<a href="${wa}" class="wa-link" target="_blank" style="margin-top:6px; display:inline-flex;">📱</a>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COPY TABLE AS CSV
+// ═══════════════════════════════════════════════════════════════
+function copyTable(tableId) {
+  const table = document.getElementById(tableId);
+  if (!table) return;
+  const rows = [];
+  table.querySelectorAll('tr').forEach(tr => {
+    const cells = [...tr.querySelectorAll('th,td')].map(c => c.textContent.trim().replace(/\s+/g, ' '));
+    rows.push(cells.join(','));
+  });
+  navigator.clipboard.writeText(rows.join('\n'))
+    .then(() => showToast('✅ ' + (isArabic ? 'تم نسخ الجدول كـ CSV' : 'Table copied as CSV'), 'success'))
+    .catch(() => showToast('❌ ' + (isArabic ? 'فشل النسخ' : 'Copy failed'), 'error'));
+}
+
+function copyFeed() {
+  const feed = document.getElementById('demand-feed');
+  const text = [...feed.querySelectorAll('.feed-item')].map(item => {
+    const name = item.querySelector('.feed-name')?.textContent || '';
+    const detail = item.querySelector('.feed-detail')?.textContent || '';
+    const time = item.querySelector('.feed-time')?.textContent || '';
+    return `${name} | ${detail} | ${time}`;
+  }).join('\n');
+  navigator.clipboard.writeText(text)
+    .then(() => showToast('✅ ' + (isArabic ? 'تم نسخ الطلبات' : 'Feed copied'), 'success'))
+    .catch(() => showToast('❌ ' + (isArabic ? 'فشل النسخ' : 'Copy failed'), 'error'));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ACTION BUTTONS
+// ═══════════════════════════════════════════════════════════════
+async function runMatching() {
+  const btn = document.getElementById('btn-match');
+  btn.disabled = true;
+  btn.innerHTML = '⏳ ' + (isArabic ? 'جار المطابقة...' : 'Running...');
+  showToast('⚡ ' + (isArabic ? 'جار تشغيل محرك المطابقة...' : 'Running matching engine...'));
+  try {
+    const r = await fetch('/api/match/run');
+    if (r.ok) {
+      const d = await r.json().catch(() => ({}));
+      showToast('✅ ' + (isArabic ? `اكتملت المطابقة! ${d.matched || ''} مطابقات جديدة` : `Matching done! ${d.matched || ''} new matches`), 'success');
+      setTimeout(refreshAll, 1500);
+    } else {
+      showToast('⚠️ ' + (isArabic ? 'خطأ في تشغيل المطابقة' : 'Error running matching'), 'error');
+    }
+  } catch (e) {
+    showToast('❌ ' + (isArabic ? 'تعذر الاتصال بالخادم' : 'Server connection failed'), 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '⚡ <span>' + (isArabic ? 'تشغيل المطابقة الآن' : 'Run Matching Now') + '</span>';
+  }
+}
+
+async function generateReport() {
+  const btn = document.getElementById('btn-report');
+  btn.disabled = true;
+  btn.innerHTML = '⏳ ' + (isArabic ? 'جار الإنشاء...' : 'Generating...');
+  showToast('📊 ' + (isArabic ? 'جار إنشاء تقرير Excel...' : 'Generating Excel report...'));
+  try {
+    const r = await fetch('/api/report/generate');
+    if (r.ok) {
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `MatchPro_Report_${new Date().toISOString().split('T')[0]}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('✅ ' + (isArabic ? 'تم تنزيل التقرير!' : 'Report downloaded!'), 'success');
+    } else {
+      showToast('⚠️ ' + (isArabic ? 'خطأ في إنشاء التقرير' : 'Report generation error'), 'error');
+    }
+  } catch (e) {
+    showToast('❌ ' + (isArabic ? 'تعذر إنشاء التقرير' : 'Report generation failed'), 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '📊 <span>' + (isArabic ? 'تصدير تقرير Excel' : 'Export Excel Report') + '</span>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FETCH ALL DATA
+// ═══════════════════════════════════════════════════════════════
+async function fetchStats() {
+  try {
+    const r = await fetch('/api/stats');
+    if (!r.ok) throw new Error('stats failed');
+    statsData = await r.json();
+    renderKPI(statsData);
+  } catch (e) {
+    console.warn('stats error', e);
+  }
+}
+
+async function fetchMatches() {
+  try {
+    const r = await fetch('/api/matches?limit=200');
+    if (!r.ok) throw new Error('matches failed');
+    const d = await r.json();
+    matchesData = d.rows || d || [];
+    matchesData.sort((a, b) => (b.match_score || 0) - (a.match_score || 0));
+    renderMatchesTable(matchesData);
+    renderScoreChart(matchesData);
+  } catch (e) {
+    console.warn('matches error', e);
+    document.getElementById('matches-tbody').innerHTML =
+      '<tr><td colspan="8"><div class="empty">⚠️ تعذر تحميل المطابقات</div></td></tr>';
+  }
+}
+
+async function fetchDemand() {
+  try {
+    const r = await fetch('/api/demand?limit=200');
+    if (!r.ok) throw new Error('demand failed');
+    const d = await r.json();
+    demandData = d.rows || d || [];
+    renderDemandFeed(demandData);
+    return demandData;
+  } catch (e) {
+    console.warn('demand error', e);
+    document.getElementById('demand-feed').innerHTML =
+      '<div class="empty">⚠️ تعذر تحميل الطلبات</div>';
+    return [];
+  }
+}
+
+async function fetchSupply() {
+  try {
+    const r = await fetch('/api/supply?limit=200');
+    if (!r.ok) throw new Error('supply failed');
+    const d = await r.json();
+    supplyData = d.rows || d || [];
+    return supplyData;
+  } catch (e) {
+    console.warn('supply error', e);
+    return [];
+  }
+}
+
+async function fetchAssets() {
+  try {
+    const r = await fetch('/api/assets');
+    if (!r.ok) throw new Error('assets failed');
+    const d = await r.json();
+    assetsData = d.assets || d || [];
+    renderAssets(assetsData);
+  } catch (e) {
+    console.warn('assets error', e);
+    document.getElementById('assets-grid').innerHTML =
+      '<div class="empty">⚠️ تعذر تحميل الأصول</div>';
+  }
+}
+
+async function refreshAll() {
+  const btn = document.getElementById('btn-refresh');
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ ' + (isArabic ? 'جار التحديث...' : 'Refreshing...'); }
+
+  await Promise.allSettled([
+    fetchStats(),
+    fetchMatches(),
+    (async () => {
+      const [d, s] = await Promise.all([fetchDemand(), fetchSupply()]);
+      renderAreaTable(d, s);
+      renderAreaChart(d, s);
+    })(),
+    fetchAssets()
+  ]);
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '🔃 <span>' + (isArabic ? 'تحديث البيانات' : 'Refresh Data') + '</span>'; }
+  startCountdown();
+  showToast('✅ ' + (isArabic ? 'تم تحديث جميع البيانات' : 'All data refreshed'), 'success');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  refreshAll();
+});
+</script>
+</body>
+</html>

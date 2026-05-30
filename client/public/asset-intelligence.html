@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MatchPro v10 — Asset Intelligence</title>
+  <style>
+    :root {
+      --bg: #0a0e27; --surface: #12183a; --surface2: #1a2050;
+      --border: #2a3060; --gold: #FFD700; --goldlight: #ffe55c;
+      --blue: #4FC3F7; --green: #4CAF50; --red: #F44336;
+      --orange: #FF9800; --text: #e8eaf6; --muted: #7986cb;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    header {
+      background: linear-gradient(135deg, #0a0e27, #12183a);
+      border-bottom: 2px solid var(--gold);
+      padding: 16px 24px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .logo h1 { font-size: 1.4rem; color: var(--gold); }
+    .logo .version { background: var(--gold); color: var(--bg); font-size: 11px; font-weight: bold; padding: 2px 7px; border-radius: 4px; margin-left: 8px; }
+    .btn { background: var(--gold); color: var(--bg); border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s; }
+    .btn:hover { background: var(--goldlight); }
+    .btn-outline { background: transparent; border: 1px solid var(--gold); color: var(--gold); }
+    .btn-outline:hover { background: rgba(255,215,0,0.1); }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .btn-blue { background: var(--blue); color: var(--bg); }
+    .btn-blue:hover { opacity: 0.9; }
+
+    main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+    .nav-links { display: flex; gap: 12px; margin-bottom: 20px; }
+    .nav-link { color: var(--blue); text-decoration: none; font-size: 13px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; transition: all 0.2s; }
+    .nav-link:hover { border-color: var(--blue); background: rgba(79,195,247,0.1); }
+
+    .page-title { margin-bottom: 24px; }
+    .page-title h2 { font-size: 1.6rem; color: var(--gold); margin-bottom: 4px; }
+    .page-title p { color: var(--muted); font-size: 13px; }
+
+    /* ASSET CARDS GRID */
+    .assets-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; margin-bottom: 24px; }
+    .asset-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      transition: all 0.2s;
+    }
+    .asset-card:hover { border-color: var(--gold); transform: translateY(-2px); box-shadow: 0 8px 32px rgba(255,215,0,0.08); }
+    .asset-card-header {
+      background: var(--surface2);
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .asset-code { font-size: 13px; font-weight: 700; color: var(--gold); font-family: monospace; }
+    .asset-status { font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: 600; }
+    .status-available { background: rgba(76,175,80,0.2); color: var(--green); border: 1px solid rgba(76,175,80,0.3); }
+    .status-under_offer { background: rgba(255,152,0,0.2); color: var(--orange); border: 1px solid rgba(255,152,0,0.3); }
+    .status-sold { background: rgba(244,67,54,0.2); color: var(--red); border: 1px solid rgba(244,67,54,0.3); }
+    .asset-card-body { padding: 20px; }
+    .asset-type { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.5px; margin-bottom: 8px; }
+    .asset-desc { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 12px; line-height: 1.4; }
+    .asset-meta { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .meta-item { font-size: 12px; color: var(--muted); }
+    .meta-item strong { color: var(--text); }
+    .asset-price { font-size: 1.3rem; font-weight: 700; color: var(--gold); margin-bottom: 16px; }
+    .asset-price .currency { font-size: 12px; color: var(--muted); font-weight: normal; margin-left: 4px; }
+    .match-count { background: rgba(255,215,0,0.1); border: 1px solid rgba(255,215,0,0.2); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; }
+    .match-count-label { font-size: 11px; color: var(--muted); }
+    .match-count-value { font-size: 1.2rem; font-weight: 700; color: var(--gold); }
+    .top-match { background: rgba(76,175,80,0.08); border: 1px solid rgba(76,175,80,0.2); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 12px; }
+    .top-match-label { color: var(--muted); margin-bottom: 4px; }
+    .top-match-text { color: var(--green); }
+    .asset-actions { display: flex; gap: 8px; }
+    .asset-notes { font-size: 12px; color: var(--muted); margin-bottom: 14px; font-style: italic; border-left: 2px solid var(--border); padding-left: 8px; }
+
+    /* HARDCODED FALLBACK ASSETS (shown when DB empty) */
+    .fallback-notice { background: rgba(255,152,0,0.1); border: 1px solid rgba(255,152,0,0.3); border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 13px; color: var(--orange); }
+
+    .empty { text-align: center; padding: 60px; color: var(--muted); font-size: 14px; }
+    .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--gold); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* MATCHES MODAL */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; width: 90%; max-width: 800px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column; }
+    .modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    .modal-header h3 { color: var(--gold); }
+    .modal-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 4px 8px; }
+    .modal-body { overflow-y: auto; padding: 0; }
+    .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .data-table th { padding: 10px 12px; text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; border-bottom: 1px solid var(--border); background: var(--surface2); position: sticky; top: 0; }
+    .data-table td { padding: 10px 12px; border-bottom: 1px solid rgba(42,48,96,0.5); }
+    .data-table tr:last-child td { border-bottom: none; }
+
+    .text-muted { color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <h1>🏢 Asset Intelligence</h1>
+    <span class="version">v10.0.0</span>
+  </div>
+  <div>
+    <button class="btn btn-outline" onclick="loadAssets()">↻ Refresh</button>
+  </div>
+</header>
+
+<main>
+  <div class="nav-links">
+    <a href="/" class="nav-link">🏠 Home</a>
+    <a href="/dashboard" class="nav-link">📊 Dashboard</a>
+    <a href="/api/assets" class="nav-link" target="_blank">📡 Assets API</a>
+  </div>
+
+  <div class="page-title">
+    <h2>CPI Owned Assets</h2>
+    <p>Crystal Power Investments portfolio — live matching demand analysis per asset</p>
+  </div>
+
+  <div id="assetsContainer">
+    <div class="empty"><span class="spinner"></span><br><br>Loading assets…</div>
+  </div>
+</main>
+
+<!-- MATCHES MODAL -->
+<div class="modal-overlay" id="matchesModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>🎯 Top Demand Matches — <span id="modalAssetCode">—</span></h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-sm" onclick="exportMatches()">⬇ Export JSON</button>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>#</th><th>Score</th><th>Buyer</th><th>Budget</th><th>Message</th><th>Date</th>
+          </tr>
+        </thead>
+        <tbody id="matchesTableBody">
+          <tr><td colspan="6" class="empty"><span class="spinner"></span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let currentAssetCode = '';
+let currentMatches = [];
+
+// CPI hardcoded assets as fallback (shown alongside DB assets)
+const CPI_ASSETS = [
+  {
+    asset_code: 'CPI-B11-MADINATY',
+    property_type: 'Apartment',
+    location: 'Madinaty, Cairo',
+    district: 'B11',
+    transaction_type: 'sale',
+    price: 5500000,
+    size_sqm: 133,
+    bedrooms: 3,
+    bathrooms: 2,
+    finishing: 'super_lux',
+    status: 'available',
+    owner_notes: 'B11 Madinaty 3BR 133m² — listed 5.5M EGP | 12 active buyers matched',
+    lead_count: 12,
+    top_match: null,
+    _hardcoded: true
+  },
+  {
+    asset_code: 'CPI-PRIVADO-1BR',
+    property_type: 'Apartment',
+    location: 'New Cairo, Egypt',
+    district: 'Privado — Grp92 Bldg16B Apt2',
+    transaction_type: 'rent',
+    price: 30000,
+    size_sqm: null,
+    bedrooms: 1,
+    bathrooms: 1,
+    finishing: 'super_lux',
+    status: 'available',
+    owner_notes: 'Ground floor + garden | Asking 30K–35K/mo | 8 active renters matched',
+    lead_count: 8,
+    top_match: null,
+    _hardcoded: true
+  },
+  {
+    asset_code: 'CPI-PRIVADO-2BR',
+    property_type: 'Apartment',
+    location: 'New Cairo, Egypt',
+    district: 'Privado — Ground Floor + Garden',
+    transaction_type: 'sale',
+    price: 5500000,
+    size_sqm: null,
+    bedrooms: 2,
+    bathrooms: 2,
+    finishing: 'super_lux',
+    status: 'available',
+    owner_notes: 'Furnished | 5.5M down + 6M installments over 6yr | Generates 50K/mo income | 8 buyers matched',
+    lead_count: 8,
+    top_match: null,
+    _hardcoded: true
+  },
+  {
+    asset_code: 'CPI-PRIVADO-LAKE',
+    property_type: 'Studio',
+    location: 'New Cairo, Egypt',
+    district: 'Privado — 4th Floor, Lake View',
+    transaction_type: 'sale',
+    price: 2500000,
+    size_sqm: null,
+    bedrooms: 0,
+    bathrooms: 1,
+    finishing: 'super_lux',
+    status: 'available',
+    owner_notes: 'Lake view studio | 2.5M down + installments + 14K/mo | 6 buyers matched',
+    lead_count: 6,
+    top_match: null,
+    _hardcoded: true
+  },
+  {
+    asset_code: 'CPI-B7-MADINATY',
+    property_type: 'Apartment',
+    location: 'Madinaty, Cairo',
+    district: 'B7',
+    transaction_type: 'rent',
+    price: 28000,
+    size_sqm: null,
+    bedrooms: 3,
+    bathrooms: 2,
+    finishing: 'super_lux',
+    status: 'vacant',
+    owner_notes: '🔴 VACANT — was rented 28K/mo | Potential 55K/mo | Manager: Chadane El-Fikky',
+    lead_count: null,
+    top_match: null,
+    _hardcoded: true
+  },
+  {
+    asset_code: 'CPI-DREAMLAND',
+    property_type: 'Apartment',
+    location: '6th of October, Giza',
+    district: 'The Emeralds — Dreamland',
+    transaction_type: 'rent',
+    price: 50000,
+    size_sqm: null,
+    bedrooms: 3,
+    bathrooms: 2,
+    finishing: 'super_lux',
+    status: 'vacant',
+    owner_notes: '🔴 VACANT — 3BR + Terrace | Target 50K/mo | Converting to commercial | ⚖️ Legal case 9078/2024',
+    lead_count: 1,
+    top_match: null,
+    _hardcoded: true
+  },
+  {
+    asset_code: 'CPI-CLINIC-S71',
+    property_type: 'Clinic',
+    location: 'Madinaty, Cairo',
+    district: 'S71',
+    transaction_type: 'sale',
+    price: 10390000,
+    size_sqm: null,
+    bedrooms: null,
+    bathrooms: null,
+    finishing: 'full',
+    status: 'for_sale',
+    owner_notes: '💰 FOR SALE — 10.39M EGP | CRITICAL priority | Manager: Mohamed Saeed',
+    lead_count: null,
+    top_match: null,
+    _hardcoded: true
+  }
+];
+
+async function loadAssets() {
+  const container = document.getElementById('assetsContainer');
+  container.innerHTML = '<div class="empty"><span class="spinner"></span><br><br>Loading…</div>';
+  try {
+    const r = await fetch(API + '/api/assets');
+    const d = await r.json();
+    let assets = d.assets || [];
+
+    // Show CPI hardcoded if DB is empty, or merge
+    if (assets.length === 0) {
+      assets = CPI_ASSETS;
+      container.innerHTML = `
+        <div class="fallback-notice">ℹ️ No assets in database yet — showing CPI portfolio reference. Add assets via DB to enable dynamic matching.</div>
+      `;
+    } else {
+      container.innerHTML = '';
+    }
+
+    renderAssets(assets, container);
+  } catch(e) {
+    container.innerHTML = '';
+    // Fallback to hardcoded
+    container.innerHTML = `
+      <div class="fallback-notice">⚠️ API error — showing CPI portfolio reference data. Server may be restarting.</div>
+    `;
+    renderAssets(CPI_ASSETS, container);
+  }
+}
+
+function renderAssets(assets, container) {
+  if (!assets.length) {
+    container.innerHTML += '<div class="empty">No assets found</div>';
+    return;
+  }
+  const grid = document.createElement('div');
+  grid.className = 'assets-grid';
+  assets.forEach(a => {
+    grid.appendChild(buildAssetCard(a));
+  });
+  container.appendChild(grid);
+}
+
+function buildAssetCard(a) {
+  const card = document.createElement('div');
+  card.className = 'asset-card';
+
+  const priceFormatted = a.price
+    ? (a.price >= 1000000 ? (a.price/1000000).toFixed(2) + 'M' : a.price.toLocaleString())
+    : '—';
+  const currency = a.transaction_type === 'rent' ? 'SAR/yr' :
+                   a.location?.includes('Germany') ? 'EUR' :
+                   a.location?.includes('Saudi') ? 'SAR' : 'EGP';
+  const txBadge = a.transaction_type === 'rent' ? '🔑 For Rent' : '🏷️ For Sale';
+
+  card.innerHTML = `
+    <div class="asset-card-header">
+      <span class="asset-code">${esc(a.asset_code || '—')}</span>
+      <span class="asset-status status-${a.status || 'available'}">${(a.status||'available').replace('_',' ').toUpperCase()}</span>
+    </div>
+    <div class="asset-card-body">
+      <div class="asset-type">${esc(a.property_type||'—')} · ${txBadge}</div>
+      <div class="asset-desc">📍 ${esc(a.location || '—')}${a.district ? ', ' + esc(a.district) : ''}</div>
+      <div class="asset-meta">
+        ${a.size_sqm ? `<span class="meta-item">📐 <strong>${a.size_sqm}</strong> m²</span>` : ''}
+        ${a.bedrooms ? `<span class="meta-item">🛏️ <strong>${a.bedrooms}</strong> BD</span>` : ''}
+        ${a.bathrooms ? `<span class="meta-item">🚿 <strong>${a.bathrooms}</strong> BA</span>` : ''}
+        ${a.finishing ? `<span class="meta-item">✨ ${esc(a.finishing.replace('_',' '))}</span>` : ''}
+      </div>
+      <div class="asset-price">${priceFormatted} <span class="currency">${currency}</span></div>
+      ${a.owner_notes ? `<div class="asset-notes">${esc(a.owner_notes)}</div>` : ''}
+      <div class="match-count">
+        <div class="match-count-label">🎯 Matching Demand</div>
+        <div class="match-count-value">${a.lead_count != null ? a.lead_count : '—'} leads</div>
+      </div>
+      ${a.top_match ? `
+        <div class="top-match">
+          <div class="top-match-label">🥇 Top Match</div>
+          <div class="top-match-text">${esc(a.top_match)}</div>
+        </div>
+      ` : ''}
+      <div class="asset-actions">
+        <button class="btn btn-sm" onclick="viewMatches('${esc(a.asset_code)}')">🔍 View Matches</button>
+        <button class="btn btn-sm btn-blue" onclick="exportMatchesDirect('${esc(a.asset_code)}')">⬇ Export</button>
+      </div>
+    </div>
+  `;
+  return card;
+}
+
+async function viewMatches(code) {
+  currentAssetCode = code;
+  document.getElementById('modalAssetCode').textContent = code;
+  document.getElementById('matchesTableBody').innerHTML = '<tr><td colspan="6" class="empty"><span class="spinner"></span></td></tr>';
+  document.getElementById('matchesModal').classList.add('open');
+
+  try {
+    const r = await fetch(API + '/api/assets/' + encodeURIComponent(code) + '/matches');
+    const d = await r.json();
+    currentMatches = d.matches || [];
+    const tbody = document.getElementById('matchesTableBody');
+    if (!currentMatches.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">No matches yet for this asset</td></tr>';
+      return;
+    }
+    tbody.innerHTML = currentMatches.map((m, i) => `
+      <tr>
+        <td class="text-muted">${i+1}</td>
+        <td><strong style="color:var(--gold)">${(m.match_score||0).toFixed(0)}%</strong></td>
+        <td>${esc(m.demand_name || m.demand_phone || '—')}</td>
+        <td>${m.demand_budget ? fmt(m.demand_budget) : '—'}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.demand_message)}">${esc((m.demand_message||'').slice(0,80))}…</td>
+        <td class="text-muted">${m.created_at ? new Date(m.created_at).toLocaleDateString() : '—'}</td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    document.getElementById('matchesTableBody').innerHTML = '<tr><td colspan="6" class="empty">Error loading matches</td></tr>';
+  }
+}
+
+function closeModal() {
+  document.getElementById('matchesModal').classList.remove('open');
+  currentAssetCode = '';
+  currentMatches = [];
+}
+
+function exportMatches() {
+  if (!currentAssetCode) return;
+  exportMatchesDirect(currentAssetCode);
+}
+
+async function exportMatchesDirect(code) {
+  try {
+    const r = await fetch(API + '/api/assets/' + encodeURIComponent(code) + '/matches');
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `matches_${code}.json`; a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) { alert('Export failed: ' + e.message); }
+}
+
+// Close modal on overlay click
+document.getElementById('matchesModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+
+function fmt(n) {
+  if (n == null) return '—';
+  if (n >= 1000000) return (n/1000000).toFixed(2) + 'M';
+  if (n >= 1000) return (n/1000).toFixed(0) + 'K';
+  return n.toLocaleString();
+}
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Initial load
+loadAssets();
+</script>
+</body>
+</html>
