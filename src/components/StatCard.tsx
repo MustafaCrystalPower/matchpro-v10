@@ -1,26 +1,25 @@
 interface StatCardProps {
-  title: string
-  value: string | number
+  title:    string
+  value:    string | number
   subtitle?: string
-  icon?: string
-  color?: string
-  trend?: { value: string; up: boolean }
+  icon?:    string
+  color?:   string
+  trend?:   { value: string; up: boolean }
   loading?: boolean
   onClick?: () => void
 }
 
-export default function StatCard({ title, value, subtitle, icon, color = 'var(--brand-teal)', trend, loading, onClick }: StatCardProps) {
+export default function StatCard({
+  title, value, subtitle, icon, color = 'var(--brand-teal)',
+  trend, loading, onClick,
+}: StatCardProps) {
+
   if (loading) {
     return (
-      <div style={{
-        background: 'var(--bg-card)',
-        borderRadius: '12px',
-        padding: '20px',
-        border: '1px solid var(--border)'
-      }}>
-        <div className="skeleton" style={{ height: '14px', width: '60%', marginBottom: '12px' }} />
-        <div className="skeleton" style={{ height: '32px', width: '80%', marginBottom: '8px' }} />
-        <div className="skeleton" style={{ height: '12px', width: '40%' }} />
+      <div className="mp-card stat-card" style={{ padding: '20px' }}>
+        <div className="skeleton" style={{ height: 12, width: '55%', marginBottom: 14 }} />
+        <div className="skeleton" style={{ height: 34, width: '75%', marginBottom: 10 }} />
+        <div className="skeleton" style={{ height: 11, width: '42%' }} />
       </div>
     )
   }
@@ -28,84 +27,107 @@ export default function StatCard({ title, value, subtitle, icon, color = 'var(--
   return (
     <div
       onClick={onClick}
+      className="mp-card stat-card"
       style={{
-        background: 'var(--bg-card)',
-        borderRadius: '12px',
         padding: '20px',
-        border: '1px solid var(--border)',
         cursor: onClick ? 'pointer' : 'default',
-        transition: 'all 0.2s',
-        position: 'relative',
-        overflow: 'hidden'
       }}
       onMouseEnter={e => {
-        if (onClick) {
-          (e.currentTarget as HTMLElement).style.borderColor = color
-          ;(e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'
-          ;(e.currentTarget as HTMLElement).style.boxShadow = `0 4px 20px rgba(0,0,0,0.3)`
-        }
+        const el = e.currentTarget as HTMLElement
+        el.style.borderColor = `${color}55`
+        el.style.boxShadow   = `0 0 0 1px ${color}22, var(--shadow-md)`
       }}
       onMouseLeave={e => {
-        if (onClick) {
-          (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'
-          ;(e.currentTarget as HTMLElement).style.transform = 'none'
-          ;(e.currentTarget as HTMLElement).style.boxShadow = 'none'
-        }
+        const el = e.currentTarget as HTMLElement
+        el.style.borderColor = 'var(--border)'
+        el.style.boxShadow   = ''
       }}
     >
-      {/* Background accent */}
+      {/* Accent blob top-right */}
       <div style={{
         position: 'absolute',
-        top: 0,
-        right: 0,
-        width: '80px',
-        height: '80px',
-        borderRadius: '0 12px 0 80px',
+        top: 0, right: 0,
+        width: 88, height: 88,
+        borderRadius: '0 12px 0 100%',
         background: color,
-        opacity: 0.08
+        opacity: 0.07,
+        pointerEvents: 'none',
       }} />
 
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '12px' }}>
-        <span style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+      {/* Header row */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
+        <span style={{
+          fontSize: '0.68rem',
+          fontWeight: 700,
+          color: 'var(--text-muted)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          lineHeight: 1.3,
+        }}>
           {title}
         </span>
         {icon && (
-          <span style={{
-            fontSize: '1.4rem',
-            width: 40,
-            height: 40,
-            borderRadius: '8px',
-            background: `${color}20`,
+          <div style={{
+            width: 38, height: 38,
+            borderRadius: '9px',
+            background: `${color}18`,
+            border: `1px solid ${color}25`,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
-          }}>{icon}</span>
+            justifyContent: 'center',
+            fontSize: '1.2rem',
+            flexShrink: 0,
+          }}>
+            {icon}
+          </div>
         )}
       </div>
 
-      <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px', lineHeight: 1 }}>
+      {/* Value */}
+      <div style={{
+        fontSize: '2rem',
+        fontWeight: 800,
+        color: 'var(--text-primary)',
+        marginBottom: 8,
+        lineHeight: 1,
+        letterSpacing: '-0.03em',
+        animation: 'countUp 0.4s ease-out',
+      }}>
         {typeof value === 'number' ? value.toLocaleString() : value}
       </div>
 
+      {/* Footer */}
       {(subtitle || trend) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {subtitle && (
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{subtitle}</span>
           )}
           {trend && (
             <span style={{
-              fontSize: '0.75rem',
-              fontWeight: 600,
+              fontSize: '0.7rem',
+              fontWeight: 700,
               color: trend.up ? 'var(--brand-green)' : 'var(--brand-red)',
-              background: trend.up ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+              background: trend.up ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
               padding: '2px 8px',
-              borderRadius: '12px'
+              borderRadius: '20px',
+              border: `1px solid ${trend.up ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`,
             }}>
-              {trend.up ? '↑' : '↓'} {trend.value}
+              {trend.up ? '▲' : '▼'} {trend.value}
             </span>
           )}
         </div>
       )}
+
+      {/* Bottom accent bar */}
+      <div style={{
+        position: 'absolute',
+        bottom: 0, left: 0, right: 0,
+        height: 2,
+        background: color,
+        opacity: 0.3,
+        borderRadius: '0 0 12px 12px',
+        pointerEvents: 'none',
+      }} />
     </div>
   )
 }

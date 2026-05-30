@@ -1,5 +1,16 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { io, Socket } from 'socket.io-client'
 import Card from '../components/Card'
+
+// Pre-seeded defaults — loaded into fields on first visit if localStorage is empty
+// User must still click "Save Gateway Credentials" to activate them
+const DEFAULT_WA = {
+  idInstance: '',
+  apiToken:   '',
+  apiUrl:     '',
+  mediaUrl:   '',
+  phone:      '',
+}
 
 interface Props { apiData: any; loading: boolean; refreshData: () => void; lastUpdated: Date }
 
@@ -19,19 +30,180 @@ export default function Settings({ apiData, loading, refreshData, lastUpdated }:
     timezone: 'Africa/Cairo'
   })
 
+  const [waCreds, setWaCreds] = useState<typeof DEFAULT_WA>(() => {
+    try {
+      const stored = localStorage.getItem('wa_gateway_creds')
+      if (stored) return { ...DEFAULT_WA, ...JSON.parse(stored) }
+      // Nothing saved yet — return empty defaults (user fills manually)
+      return DEFAULT_WA
+    } catch { return DEFAULT_WA }
+  })
+  const [waSaved,          setWaSaved]          = useState(false)
+  const [waTesting,        setWaTesting]        = useState(false)
+  const [waStatus,         setWaStatus]         = useState<'idle' | 'ok' | 'error'>('idle')
+  const [waMsg,            setWaMsg]            = useState('')
+  const [applyingToServer, setApplyingToServer] = useState(false)
+  const [applyMsg,         setApplyMsg]         = useState('')
+  const [backendHealth,    setBackendHealth]    = useState<any>(null)
+  const [backendChecked,   setBackendChecked]   = useState(false)
+
   const [saved, setSaved] = useState(false)
+
+  // ── Socket.IO connection status ──────────────────────────
+  const [wsState,       setWsState]       = useState<'connecting'|'connected'|'disconnected'>('connecting')
+  const [wsClients,     setWsClients]     = useState<number>(0)
+  const [wsMessages,    setWsMessages]    = useState<number>(0)
+  const [wsLastEvent,   setWsLastEvent]   = useState<string>('')
+  const [wsTransport,   setWsTransport]   = useState<string>('')
+  const socketRef = useRef<Socket | null>(null)
+
+  useEffect(() => {
+    const wsUrl = window.location.origin
+    const socket = io(wsUrl, {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 2000,
+    })
+    socketRef.current = socket
+
+    socket.on('connect', () => {
+      setWsState('connected')
+      setWsTransport(socket.io.engine.transport.name)
+      setWsLastEvent('connect')
+    })
+    socket.on('disconnect', () => {
+      setWsState('disconnected')
+      setWsLastEvent('disconnect')
+    })
+    socket.on('connect_error', () => {
+      setWsState('disconnected')
+      setWsLastEvent('error')
+    })
+    socket.on('init', (data: any) => {
+      setWsMessages(data.messages?.length || 0)
+      setWsLastEvent('init')
+    })
+    socket.on('new_messages', (data: any) => {
+      setWsMessages(prev => prev + (data.messages?.length || 0))
+      setWsLastEvent('new_messages')
+    })
+    socket.on('stats_update', (data: any) => {
+      setWsClients(data.clients || 0)
+      setWsLastEvent('stats_update')
+    })
+
+    return () => { socket.disconnect() }
+  }, [])
+
+  const handleReconnect = () => {
+    if (socketRef.current) {
+      setWsState('connecting')
+      socketRef.current.disconnect()
+      socketRef.current.connect()
+    }
+  }
 
   const handleSave = () => {
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
   }
 
+  // Check backend health on mount
+  useEffect(() => {
+    fetch('/api/health', { signal: AbortSignal.timeout(4000) })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { setBackendHealth(data); setBackendChecked(true) })
+      .catch(() => { setBackendHealth(null); setBackendChecked(true) })
+  }, [])
+
+  const handleApplyToServer = async () => {
+    setApplyingToServer(true)
+    setApplyMsg('')
+    try {
+      if (!waCreds.idInstance || !waCreds.apiToken) {
+        setApplyMsg('❌ Enter Instance ID and Token first')
+        setApplyingToServer(false)
+        return
+      }
+      // Save to localStorage first
+      localStorage.setItem('wa_gateway_creds', JSON.stringify(waCreds))
+      // Push to backend
+      const res = await fetch('/api/wa/creds', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(30000),
+        body: JSON.stringify({ idInstance: waCreds.idInstance, apiToken: waCreds.apiToken }),
+      })
+      const ct = res.headers.get('content-type') || ''
+      if (!ct.includes('json')) throw new Error(`HTTP ${res.status} — backend may be offline`)
+      const data = await res.json()
+      if (res.ok) {
+        setApplyMsg(`✅ Applied — WA state: ${data.state}${data.messages > 0 ? ` · ${data.messages} msgs loaded` : ' (loading history…)'}`)
+        // Refresh health
+        const h = await fetch('/api/health').then(r => r.json()).catch(() => null)
+        if (h) setBackendHealth(h)
+      } else {
+        setApplyMsg(`❌ ${data.error || data.message || 'Server error'}`)
+      }
+    } catch (err: any) {
+      setApplyMsg(`❌ ${err.message || 'Failed — is the backend running?'}`)
+    } finally {
+      setApplyingToServer(false)
+      setTimeout(() => setApplyMsg(''), 8000)
+    }
+  }
+
   const handleChange = (key: string, value: any) => {
     setSettings(prev => ({ ...prev, [key]: value }))
   }
 
+  const handleWaChange = (key: keyof typeof DEFAULT_WA, value: string) => {
+    setWaCreds(prev => ({ ...prev, [key]: value }))
+  }
+
+  const handleWaSave = () => {
+    localStorage.setItem('wa_gateway_creds', JSON.stringify(waCreds))
+    setWaSaved(true)
+    setWaStatus('idle')
+    setTimeout(() => setWaSaved(false), 2500)
+  }
+
+  const handleWaTest = async () => {
+    setWaTesting(true)
+    setWaStatus('idle')
+    setWaMsg('')
+    try {
+      if (!waCreds.idInstance || !waCreds.apiToken) throw new Error('Enter Instance ID and Token first')
+      const url = `/waproxy/waInstance${waCreds.idInstance}/getStateInstance/${waCreds.apiToken}`
+      const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
+      const contentType = res.headers.get('content-type') || ''
+      if (!contentType.includes('json')) {
+        throw new Error(`Non-JSON response (${res.status}) — check Instance ID and Token`)
+      }
+      const data = await res.json()
+      if (data.stateInstance) {
+        setWaStatus('ok')
+        setWaMsg(`Connected · State: ${data.stateInstance}`)
+      } else if (data.error) {
+        setWaStatus('error')
+        setWaMsg(data.message || data.error)
+      } else {
+        setWaStatus('error')
+        setWaMsg(JSON.stringify(data).slice(0, 160))
+      }
+    } catch (err: any) {
+      setWaStatus('error')
+      setWaMsg(err.message || 'Connection failed')
+    } finally {
+      setWaTesting(false)
+    }
+  }
+
   const summary = apiData?.summary
   const markets = apiData?.intelligence?.markets || []
+
+  const isMarketLive = apiData?.source === 'live'
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }} className="page-container">
@@ -43,6 +215,109 @@ export default function Settings({ apiData, loading, refreshData, lastUpdated }:
           Configure dashboard preferences, API settings, and notification options
         </p>
       </div>
+
+      {/* ── System Status Banner ────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+        {/* Market API status */}
+        <div style={{ padding: '12px 16px', borderRadius: 10, background: isMarketLive ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)', border: `1px solid ${isMarketLive ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)'}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: '1.4rem' }}>{isMarketLive ? '🟢' : '🟡'}</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.82rem', color: isMarketLive ? '#10b981' : '#f59e0b' }}>
+              Market API — {isMarketLive ? 'LIVE' : 'OFFLINE'}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+              {isMarketLive ? 'Connected to 20.69.29.54:3070 — real data flowing' : 'Backend at 20.69.29.54:3070 unreachable — rich demo data shown instead'}
+            </div>
+          </div>
+        </div>
+        {/* WhatsApp status */}
+        <div style={{ padding: '12px 16px', borderRadius: 10, background: waCreds.idInstance ? 'rgba(37,211,102,0.08)' : 'rgba(107,114,128,0.08)', border: `1px solid ${waCreds.idInstance ? 'rgba(37,211,102,0.3)' : 'rgba(107,114,128,0.2)'}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: '1.4rem' }}>{waCreds.idInstance ? '🟢' : '⚪'}</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.82rem', color: waCreds.idInstance ? '#25d366' : 'var(--text-muted)' }}>
+              WhatsApp — {waCreds.idInstance ? 'CONFIGURED' : 'NOT SET'}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+              {waCreds.idInstance ? `Instance ${waCreds.idInstance}` : 'Enter Instance ID + Token below and Save'}
+            </div>
+          </div>
+        </div>
+        {/* Backend status */}
+        <div style={{ padding: '12px 16px', borderRadius: 10, background: backendHealth ? 'rgba(167,139,250,0.08)' : 'rgba(107,114,128,0.08)', border: `1px solid ${backendHealth ? 'rgba(167,139,250,0.3)' : 'rgba(107,114,128,0.2)'}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: '1.4rem' }}>{!backendChecked ? '⏳' : backendHealth ? '🟣' : '⚫'}</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.82rem', color: backendHealth ? '#a78bfa' : 'var(--text-muted)' }}>
+              Backend — {!backendChecked ? 'CHECKING' : backendHealth ? 'RUNNING' : 'OFFLINE'}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+              {backendHealth
+                ? `WA: ${backendHealth.wa?.state || '?'} · ${backendHealth.stats?.total || 0} msgs · GPT: ${backendHealth.openai?.available ? 'on' : 'off'}`
+                : backendChecked ? 'Start: cd server && node index.js' : 'Checking port 3001…'}
+            </div>
+          </div>
+        </div>
+        {/* Socket.IO WebSocket status */}
+        <div style={{
+          padding: '12px 16px', borderRadius: 10,
+          background: wsState === 'connected' ? 'rgba(14,165,233,0.08)' : wsState === 'connecting' ? 'rgba(245,158,11,0.08)' : 'rgba(107,114,128,0.08)',
+          border: `1px solid ${wsState === 'connected' ? 'rgba(14,165,233,0.3)' : wsState === 'connecting' ? 'rgba(245,158,11,0.25)' : 'rgba(107,114,128,0.2)'}`,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span style={{ fontSize: '1.4rem' }}>
+            {wsState === 'connected' ? '🔵' : wsState === 'connecting' ? '🟡' : '⚫'}
+          </span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.82rem', color: wsState === 'connected' ? '#0ea5e9' : wsState === 'connecting' ? '#f59e0b' : 'var(--text-muted)' }}>
+              WebSocket — {wsState === 'connected' ? 'CONNECTED' : wsState === 'connecting' ? 'CONNECTING' : 'DISCONNECTED'}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+              {wsState === 'connected'
+                ? `${wsTransport || 'websocket'} · ${wsMessages} msgs received · event: ${wsLastEvent || '—'}`
+                : wsState === 'connecting' ? 'Connecting to Socket.IO server…'
+                : 'Real-time feed offline — check backend'}
+            </div>
+          </div>
+          {wsState === 'disconnected' && (
+            <button onClick={handleReconnect} style={{
+              padding: '4px 8px', borderRadius: 6, fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer',
+              background: 'rgba(14,165,233,0.15)', color: '#0ea5e9', border: '1px solid rgba(14,165,233,0.3)',
+            }}>↺ Retry</button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Socket.IO Detail Card ───────────────────────────────── */}
+      <Card title="🔌 Real-Time WebSocket (Socket.IO)" subtitle="Live connection diagnostics and event log">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+          {[
+            { label: 'Status',    value: wsState.toUpperCase(), color: wsState === 'connected' ? '#0ea5e9' : wsState === 'connecting' ? '#f59e0b' : '#94a3b8' },
+            { label: 'Transport', value: wsTransport || '—', color: 'var(--text-primary)' },
+            { label: 'Messages Rx', value: wsMessages.toLocaleString(), color: '#10b981' },
+            { label: 'Last Event', value: wsLastEvent || '—', color: '#f59e0b' },
+          ].map(({ label, value, color }, i) => (
+            <div key={i} style={{ padding: '10px 12px', borderRadius: 8, background: 'var(--bg-input)', border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 700, color }}>{value}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{
+          padding: '10px 14px', borderRadius: 8, fontSize: '0.78rem',
+          background: wsState === 'connected' ? 'rgba(14,165,233,0.06)' : 'rgba(107,114,128,0.06)',
+          border: `1px solid ${wsState === 'connected' ? 'rgba(14,165,233,0.2)' : 'rgba(107,114,128,0.15)'}`,
+          color: 'var(--text-secondary)', lineHeight: 1.6,
+        }}>
+          <strong style={{ color: wsState === 'connected' ? '#0ea5e9' : 'var(--text-muted)' }}>
+            {wsState === 'connected' ? '✓ Live feed active' : wsState === 'connecting' ? '⟳ Connecting…' : '✗ Feed offline'}
+          </strong>
+          {wsState === 'connected' && (
+            <span> — WhatsApp messages are pushed instantly. No polling required. Socket path: <code style={{ background: 'rgba(0,0,0,0.3)', padding: '1px 5px', borderRadius: 4, color: '#0ea5e9', fontSize: '0.75rem' }}>/socket.io</code></span>
+          )}
+          {wsState === 'disconnected' && (
+            <span> — Start the backend: <code style={{ background: 'rgba(0,0,0,0.3)', padding: '1px 5px', borderRadius: 4, color: '#f87171', fontSize: '0.75rem' }}>pm2 start server/ecosystem.config.cjs</code> then click Retry above.</span>
+          )}
+        </div>
+      </Card>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
         {/* API Configuration */}
@@ -234,6 +509,148 @@ export default function Settings({ apiData, loading, refreshData, lastUpdated }:
           </div>
         </Card>
       </div>
+
+      {/* ── WhatsApp Gateway Configuration ───────────────── */}
+      <Card title="💬 WhatsApp Gateway" subtitle="Configure your WhatsApp messaging gateway credentials">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+          {/* Left col: credentials */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <SettingField label="Instance ID" description="Your gateway instance ID">
+              <input
+                value={waCreds.idInstance}
+                onChange={e => handleWaChange('idInstance', e.target.value)}
+                placeholder="Enter instance ID"
+              />
+            </SettingField>
+            <SettingField label="API Token" description="apiTokenInstance (keep secret)">
+              <input
+                type="password"
+                value={waCreds.apiToken}
+                onChange={e => handleWaChange('apiToken', e.target.value)}
+                placeholder="c678c910..."
+                style={{ fontFamily: 'monospace', fontSize: '0.8rem', letterSpacing: '0.05em' }}
+              />
+            </SettingField>
+            <SettingField label="API URL" description="Gateway API base URL">
+              <input
+                value={waCreds.apiUrl}
+                onChange={e => handleWaChange('apiUrl', e.target.value)}
+                placeholder="https://api.example.com"
+              />
+            </SettingField>
+            <SettingField label="Media URL" description="Gateway media base URL">
+              <input
+                value={waCreds.mediaUrl}
+                onChange={e => handleWaChange('mediaUrl', e.target.value)}
+                placeholder="https://media.example.com"
+              />
+            </SettingField>
+            <SettingField label="Phone Number" description="WhatsApp number (with country code)">
+              <input
+                value={waCreds.phone}
+                onChange={e => handleWaChange('phone', e.target.value)}
+                placeholder="Country code + number"
+              />
+            </SettingField>
+          </div>
+
+          {/* Right col: status + actions */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {/* Plan info */}
+            <div style={{ padding: '14px', borderRadius: '10px', background: 'rgba(37,211,102,0.07)', border: '1px solid rgba(37,211,102,0.25)' }}>
+              <div style={{ fontSize: '0.72rem', color: '#25d366', fontWeight: 700, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                ✅ Instance Status
+              </div>
+              {[
+                { label: 'Instance',  value: waCreds.idInstance },
+                { label: 'Phone',     value: `+${waCreds.phone}` },
+                { label: 'Status',    value: waCreds.idInstance ? 'Configured' : 'Not configured' },
+              ].map(row => (
+                <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid rgba(37,211,102,0.12)', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>{row.label}</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{row.value}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Connection test result */}
+            {waStatus !== 'idle' && (
+              <div style={{
+                padding: '10px 14px', borderRadius: '8px', fontSize: '0.8rem',
+                background: waStatus === 'ok' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                border: `1px solid ${waStatus === 'ok' ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
+                color: waStatus === 'ok' ? 'var(--brand-green)' : '#f87171',
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}>
+                <span>{waStatus === 'ok' ? '✓' : '✗'}</span>
+                <span>{waMsg}</span>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: 'auto' }}>
+              <button
+                onClick={handleWaTest}
+                disabled={waTesting}
+                style={{
+                  padding: '8px 16px', borderRadius: '8px', fontWeight: 600, fontSize: '0.82rem',
+                  background: 'rgba(37,211,102,0.1)', color: '#25d366',
+                  border: '1px solid rgba(37,211,102,0.3)', cursor: waTesting ? 'not-allowed' : 'pointer',
+                  opacity: waTesting ? 0.7 : 1, transition: 'all 0.15s',
+                }}
+              >
+                {waTesting ? '⟳ Testing…' : '🔌 Test Connection'}
+              </button>
+              <button
+                onClick={handleWaSave}
+                style={{
+                  padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '0.82rem',
+                  background: waSaved ? 'rgba(16,185,129,0.2)' : 'rgba(37,211,102,0.15)',
+                  color: waSaved ? 'var(--brand-green)' : '#25d366',
+                  border: `1px solid ${waSaved ? 'rgba(16,185,129,0.4)' : 'rgba(37,211,102,0.3)'}`,
+                  cursor: 'pointer', transition: 'all 0.2s',
+                }}
+              >
+                {waSaved ? '✅ Saved to Browser!' : '💾 Save to Browser'}
+              </button>
+              {/* Apply to persistent backend server */}
+              <button
+                onClick={handleApplyToServer}
+                disabled={applyingToServer}
+                style={{
+                  padding: '10px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '0.82rem',
+                  background: applyingToServer ? 'rgba(167,139,250,0.1)' : 'linear-gradient(135deg, rgba(167,139,250,0.2), rgba(14,165,233,0.2))',
+                  color: '#a78bfa',
+                  border: '1px solid rgba(167,139,250,0.4)',
+                  cursor: applyingToServer ? 'not-allowed' : 'pointer',
+                  opacity: applyingToServer ? 0.7 : 1,
+                  transition: 'all 0.2s',
+                  display: 'flex', alignItems: 'center', gap: 7,
+                }}
+              >
+                <span style={{ animation: applyingToServer ? 'spin 0.8s linear infinite' : 'none', display: 'inline-block' }}>
+                  {applyingToServer ? '⟳' : '⚡'}
+                </span>
+                {applyingToServer ? 'Applying to Backend…' : 'Apply to Live Backend Server'}
+              </button>
+              {applyMsg && (
+                <div style={{
+                  padding: '8px 12px', borderRadius: 7, fontSize: '0.78rem',
+                  background: applyMsg.startsWith('✅') ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)',
+                  border: `1px solid ${applyMsg.startsWith('✅') ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                  color: applyMsg.startsWith('✅') ? '#10b981' : '#f87171',
+                  lineHeight: 1.5,
+                }}>
+                  {applyMsg}
+                </div>
+              )}
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.5, padding: '6px 0' }}>
+                <strong style={{ color: 'var(--brand-teal)' }}>⚡ Apply to Server</strong> — sends credentials directly to the persistent Express backend (port 3001). The backend immediately connects to WhatsApp, loads message history, and starts GPT classification. No page reload needed.
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       {/* Save Button */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>

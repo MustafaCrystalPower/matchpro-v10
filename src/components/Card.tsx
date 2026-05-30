@@ -1,36 +1,55 @@
 import { type ReactNode } from 'react'
+import type { CSSProperties } from 'react'
 
 interface CardProps {
-  title?: string
+  title?:    string
   subtitle?: string
-  children: ReactNode
-  actions?: ReactNode
-  style?: React.CSSProperties
-  padding?: string
+  children:  ReactNode
+  actions?:  ReactNode
+  style?:    CSSProperties
+  padding?:  string
 }
 
-export default function Card({ title, subtitle, children, actions, style, padding = '20px' }: CardProps) {
+export default function Card({
+  title, subtitle, children, actions,
+  style, padding = '20px',
+}: CardProps) {
   return (
-    <div style={{
-      background: 'var(--bg-card)',
-      borderRadius: '12px',
-      border: '1px solid var(--border)',
-      overflow: 'hidden',
-      ...style
-    }}>
+    <div className="mp-card" style={{ overflow: 'hidden', ...style }}>
       {(title || actions) && (
         <div style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '16px 20px',
-          borderBottom: '1px solid var(--border)'
+          padding: '14px 20px',
+          borderBottom: '1px solid var(--border)',
+          gap: 12,
         }}>
-          <div>
-            {title && <h3 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)' }}>{title}</h3>}
-            {subtitle && <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>{subtitle}</p>}
+          <div style={{ minWidth: 0 }}>
+            {title && (
+              <h3 style={{
+                fontSize: '0.9rem',
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+                letterSpacing: '-0.01em',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {title}
+              </h3>
+            )}
+            {subtitle && (
+              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                {subtitle}
+              </p>
+            )}
           </div>
-          {actions && <div>{actions}</div>}
+          {actions && (
+            <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+              {actions}
+            </div>
+          )}
         </div>
       )}
       <div style={{ padding }}>{children}</div>
@@ -38,9 +57,9 @@ export default function Card({ title, subtitle, children, actions, style, paddin
   )
 }
 
-export function CardSection({ children, style }: { children: ReactNode; style?: React.CSSProperties }) {
+export function CardSection({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return (
-    <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', ...style }}>
+    <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', ...style }}>
       {children}
     </div>
   )
