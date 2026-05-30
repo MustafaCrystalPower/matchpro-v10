@@ -25,6 +25,10 @@ import { fileURLToPath } from 'url'
 import https from 'https'
 import http from 'http'
 
+
+
+
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PORT = process.env.PORT || 3000
 
@@ -880,6 +884,207 @@ async function main() {
     }
   })
   
+  // ─── WhatsApp Webhook (Green API) ─────────────────────────────────────────────
+  
+  const GREEN_API_INSTANCE = process.env.GREEN_API_INSTANCE_ID || '7105409203'
+  const GREEN_API_TOKEN    = process.env.GREEN_API_TOKEN        || 'c678c910865246ca90eeb3d16867b5fa12a52bb37b4944db92'
+  const GREEN_API_URL      = process.env.GREEN_API_API_URL      || 'https://7105.api.greenapi.com'
+  
+  // In-memory WhatsApp message store (last 500 messages)
+  const WA_MESSAGES = []
+  const WA_MAX = 500
+
+  // Receive incoming webhook from Green API
+  app.post('/api/whatsapp/webhook', (req, res) => {
+    try {
+      const body = req.body
+      
+      // Green API sends different typeWebhook values
+      const type = body.typeWebhook
+      
+      if (type === 'incomingMessageReceived') {
+        const msg = body.messageData
+        const sender = body.senderData
+        const text = msg?.textMessageData?.textMessage || 
+                     msg?.extendedTextMessageData?.text || 
+                     msg?.buttonsResponseMessage?.selectedDisplayText || ''
+        
+        const record = {
+          id: body.idMessage || Date.now().toString(),
+          timestamp: body.timestamp || Math.floor(Date.now() / 1000),
+          phone: sender?.sender?.replace('@c.us', '') || '',
+          name: sender?.senderName || '',
+          chat: sender?.chatId || '',
+          text,
+          type: msg?.typeMessage || 'textMessage',
+          received_at: new Date().toISOString(),
+        }
+        
+        // Store message
+        WA_MESSAGES.unshift(record)
+        if (WA_MESSAGES.length > WA_MAX) WA_MESSAGES.pop()
+        
+        console.log(`[WhatsApp] ← ${record.name} (${record.phone}): ${text.slice(0, 60)}`)
+        
+        // Auto-extract real estate intent if message has keywords
+        const lower = text.toLowerCase()
+        const hasREKeywords = ['شقة','فيلا','دوبلكس','عقار','apartment','villa','buy','sell','rent','إيجار','بيع','شراء','مدينتي','التجمع','الشيخ زايد'].some(k => lower.includes(k))
+        
+        if (hasREKeywords && record.phone) {
+          // Add to demand pipeline
+          const demand = {
+            id: Date.now(),
+            date: new Date().toISOString().split('T')[0],
+            purpose: lower.includes('إيجار') || lower.includes('rent') ? 'rent' : 'sale',
+            type: lower.includes('فيلا') || lower.includes('villa') ? 'villa' : lower.includes('دوبلكس') ? 'duplex' : 'apartment',
+            location: extractLocation(text) || 'Cairo',
+            city: 'Cairo',
+            budget_max: extractBudget(text),
+            bedrooms: extractBedrooms(text),
+            contact: record.phone,
+            name: record.name,
+            group: 'WhatsApp Live',
+            intent_score: 75,
+            message: text,
+            source: 'whatsapp_live',
+          }
+          DEMAND_DATA.unshift(demand)
+          if (DEMAND_DATA.length > 10000) DEMAND_DATA.pop()
+          console.log(`[WhatsApp] Auto-extracted demand: ${demand.location} | ${demand.purpose}`)
+        }
+      }
+      
+      res.json({ status: 'ok' })
+    } catch (err) {
+      console.error('[WhatsApp] Webhook error:', err.message)
+      res.json({ status: 'ok' }) // Always return 200 to Green API
+    }
+  })
+
+  // GET webhook status + recent messages
+  app.get('/api/whatsapp/messages', (req, res) => {
+    const limit = parseInt(req.query.limit || '50')
+    res.json({
+      status: 'ok',
+      instance: GREEN_API_INSTANCE,
+      total: WA_MESSAGES.length,
+      messages: WA_MESSAGES.slice(0, limit),
+    })
+  })
+
+  // Send a WhatsApp message via Green API
+  app.post('/api/whatsapp/send', async (req, res) => {
+    const { phone, message } = req.body
+    if (!phone || !message) return res.status(400).json({ error: 'phone and message required' })
+    
+    try {
+      const chatId = phone.includes('@') ? phone : `${phone.replace(/\D/g, '')}@c.us`
+      const url = `${GREEN_API_URL}/waInstance${GREEN_API_INSTANCE}/sendMessage/${GREEN_API_TOKEN}`
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId, message }),
+      })
+      const result = await response.json()
+      res.json({ status: 'ok', result })
+    } catch (err) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  // Get Green API instance status
+  app.get('/api/whatsapp/status', async (req, res) => {
+    try {
+      const url = `${GREEN_API_URL}/waInstance${GREEN_API_INSTANCE}/getStateInstance/${GREEN_API_TOKEN}`
+      const response = await fetch(url)
+      const data = await response.json()
+      res.json({ 
+        status: 'ok',
+        instance: GREEN_API_INSTANCE,
+        phone: '201066505665',
+        state: data.stateInstance,
+        raw: data,
+      })
+    } catch (err) {
+      res.status(500).json({ error: err.message, instance: GREEN_API_INSTANCE })
+    }
+  })
+
+  // ─── Helper: Extract Real Estate Info from Text ────────────────────────────────
+
+  function extractLocation(text) {
+    const LOCS = [
+      'مدينتي','Madinaty','الرحاب','Rehab','التجمع الخامس','New Cairo',
+      'الشيخ زايد','Sheikh Zayed','6 أكتوبر','6th of October',
+      'العاصمة الادارية','New Capital','مدينة المستقبل','Mostakbal',
+      'المعادي','Maadi','هليوبوليس','Heliopolis','الساحل الشمالي','North Coast',
+      'مدينة نور','Medinet Nour','بيفرلي هيلز','Beverly Hills',
+    ]
+    const lower = text.toLowerCase()
+    for (const loc of LOCS) {
+      if (text.includes(loc) || lower.includes(loc.toLowerCase())) return loc
+    }
+    return null
+  }
+
+  function extractBudget(text) {
+    const mMatch = text.match(/([\d.]+)\s*[مMm](?:ليون|illion)?/)
+    if (mMatch) return parseFloat(mMatch[1]) * 1000000
+    const kMatch = text.match(/([\d.]+)\s*[kKأ](?:لف)?/)
+    if (kMatch) return parseFloat(kMatch[1]) * 1000
+    const numMatch = text.match(/(\d[\d,]{4,})/)
+    if (numMatch) return parseFloat(numMatch[1].replace(/,/g, ''))
+    return 0
+  }
+
+  function extractBedrooms(text) {
+    const match = text.match(/(\d)\s*(?:غرف|غرفة|bedroom|br|room)/i)
+    if (match) return parseInt(match[1])
+    if (text.includes('استوديو') || text.toLowerCase().includes('studio')) return 1
+    return 0
+  }
+
+  // ─── Configure Green API Webhook (auto-setup on startup) ──────────────────────
+
+  async function setupGreenAPIWebhook() {
+    const appUrl = process.env.RAILWAY_PUBLIC_DOMAIN 
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : process.env.APP_URL || null
+    
+    if (!appUrl) {
+      console.log('[Green API] No APP_URL set — webhook not auto-configured. Set RAILWAY_PUBLIC_DOMAIN or APP_URL env var.')
+      return
+    }
+    
+    const webhookUrl = `${appUrl}/api/whatsapp/webhook`
+    
+    try {
+      const settingsUrl = `${GREEN_API_URL}/waInstance${GREEN_API_INSTANCE}/setSettings/${GREEN_API_TOKEN}`
+      const response = await fetch(settingsUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webhookUrl,
+          webhookUrlToken: '',
+          delaySendMessagesMilliseconds: 1000,
+          markIncomingMessagesReaded: 'yes',
+          markIncomingMessagesReadedOnReply: 'yes',
+          outgoingWebhook: 'yes',
+          outgoingMessageWebhook: 'yes',
+          incomingWebhook: 'yes',
+          deviceWebhook: 'no',
+          stateWebhook: 'no',
+        }),
+      })
+      const result = await response.json()
+      console.log(`[Green API] ✅ Webhook configured: ${webhookUrl}`)
+      console.log(`[Green API] Response:`, JSON.stringify(result))
+    } catch (err) {
+      console.warn(`[Green API] Failed to auto-configure webhook: ${err.message}`)
+    }
+  }
+
   // Serve frontend (production: built dist; dev: run vite separately)
   const distPath = path.join(__dirname, 'dist')
   if (fs.existsSync(distPath)) {
@@ -897,9 +1102,12 @@ async function main() {
     console.log(`   Crystal Power Investments | Cairo, Egypt`)
     console.log(`   Running on http://localhost:${PORT}`)
     console.log(`   API: http://localhost:${PORT}/api/public/market-summary`)
+    console.log(`   WhatsApp Webhook: http://localhost:${PORT}/api/whatsapp/webhook`)
     console.log(`   Env: ${process.env.NODE_ENV || 'development'}\n`)
     // Pre-load data
     loadData()
+    // Auto-configure Green API webhook
+    setTimeout(setupGreenAPIWebhook, 3000)
   })
 }
 
