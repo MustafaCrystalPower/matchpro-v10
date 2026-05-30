@@ -1,14 +1,10 @@
 [build]
-command = '''
-  npm install --production
-'''
+builder = "dockerfile"
 
 [deploy]
-startCommand = "node api-server.js"
-healthcheckPath = "/health"
+startCommand = "npm start"
+healthcheckPath = "/api/health"
 healthcheckTimeout = 120
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
-
-# MatchPro v11.0.0 | Crystal Power Investments
 
