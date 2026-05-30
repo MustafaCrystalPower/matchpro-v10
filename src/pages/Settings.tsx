@@ -1,9 +1,15 @@
+<<<<<<< HEAD
 import { useState, useEffect, useRef } from 'react'
 import { io, Socket } from 'socket.io-client'
 import Card from '../components/Card'
 
 // Pre-seeded defaults — loaded into fields on first visit if localStorage is empty
 // User must still click "Save Gateway Credentials" to activate them
+=======
+import { useState } from 'react'
+import Card from '../components/Card'
+
+>>>>>>> origin/main
 const DEFAULT_WA = {
   idInstance: '',
   apiToken:   '',
@@ -16,7 +22,11 @@ interface Props { apiData: any; loading: boolean; refreshData: () => void; lastU
 
 export default function Settings({ apiData, loading, refreshData, lastUpdated }: Props) {
   const [settings, setSettings] = useState({
+<<<<<<< HEAD
     apiBaseUrl: 'http://20.69.29.54:3070',
+=======
+    apiBaseUrl: window.location.origin,
+>>>>>>> origin/main
     refreshInterval: '60',
     defaultLocation: 'Madinaty',
     matchMinScore: '70',
@@ -33,6 +43,7 @@ export default function Settings({ apiData, loading, refreshData, lastUpdated }:
   const [waCreds, setWaCreds] = useState<typeof DEFAULT_WA>(() => {
     try {
       const stored = localStorage.getItem('wa_gateway_creds')
+<<<<<<< HEAD
       if (stored) return { ...DEFAULT_WA, ...JSON.parse(stored) }
       // Nothing saved yet — return empty defaults (user fills manually)
       return DEFAULT_WA
@@ -104,11 +115,24 @@ export default function Settings({ apiData, loading, refreshData, lastUpdated }:
     }
   }
 
+=======
+      return stored ? { ...DEFAULT_WA, ...JSON.parse(stored) } : DEFAULT_WA
+    } catch { return DEFAULT_WA }
+  })
+  const [waSaved,   setWaSaved]   = useState(false)
+  const [waTesting, setWaTesting] = useState(false)
+  const [waStatus,  setWaStatus]  = useState<'idle' | 'ok' | 'error'>('idle')
+  const [waMsg,     setWaMsg]     = useState('')
+
+  const [saved, setSaved] = useState(false)
+
+>>>>>>> origin/main
   const handleSave = () => {
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
   }
 
+<<<<<<< HEAD
   // Check backend health on mount
   useEffect(() => {
     fetch('/api/health', { signal: AbortSignal.timeout(4000) })
@@ -154,6 +178,8 @@ export default function Settings({ apiData, loading, refreshData, lastUpdated }:
     }
   }
 
+=======
+>>>>>>> origin/main
   const handleChange = (key: string, value: any) => {
     setSettings(prev => ({ ...prev, [key]: value }))
   }
@@ -203,8 +229,11 @@ export default function Settings({ apiData, loading, refreshData, lastUpdated }:
   const summary = apiData?.summary
   const markets = apiData?.intelligence?.markets || []
 
+<<<<<<< HEAD
   const isMarketLive = apiData?.source === 'live'
 
+=======
+>>>>>>> origin/main
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }} className="page-container">
       <div>
@@ -216,6 +245,7 @@ export default function Settings({ apiData, loading, refreshData, lastUpdated }:
         </p>
       </div>
 
+<<<<<<< HEAD
       {/* ── System Status Banner ────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
         {/* Market API status */}
@@ -319,6 +349,8 @@ export default function Settings({ apiData, loading, refreshData, lastUpdated }:
         </div>
       </Card>
 
+=======
+>>>>>>> origin/main
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
         {/* API Configuration */}
         <Card title="🔌 API Configuration" subtitle="Market intelligence API connection settings">
@@ -611,6 +643,7 @@ export default function Settings({ apiData, loading, refreshData, lastUpdated }:
                   cursor: 'pointer', transition: 'all 0.2s',
                 }}
               >
+<<<<<<< HEAD
                 {waSaved ? '✅ Saved to Browser!' : '💾 Save to Browser'}
               </button>
               {/* Apply to persistent backend server */}
@@ -646,6 +679,12 @@ export default function Settings({ apiData, loading, refreshData, lastUpdated }:
               )}
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.5, padding: '6px 0' }}>
                 <strong style={{ color: 'var(--brand-teal)' }}>⚡ Apply to Server</strong> — sends credentials directly to the persistent Express backend (port 3001). The backend immediately connects to WhatsApp, loads message history, and starts GPT classification. No page reload needed.
+=======
+                {waSaved ? '✅ Credentials Saved!' : '💾 Save Gateway Credentials'}
+              </button>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                Credentials are stored in browser localStorage and used by the WhatsApp Intelligence page for live polling.
+>>>>>>> origin/main
               </div>
             </div>
           </div>

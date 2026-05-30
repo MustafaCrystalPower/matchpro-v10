@@ -19,6 +19,7 @@ const NAV_SECTIONS = [
   {
     label: 'TOOLS',
     items: [
+<<<<<<< HEAD
       { id: 'asset-matcher' as Page, icon: '🏆', label: 'Asset Matcher' },
       { id: 'matches'       as Page, icon: '🎯', label: 'Matches' },
       { id: 'analytics'     as Page, icon: '📊', label: 'Analytics' },
@@ -39,6 +40,28 @@ const NAV_SECTIONS = [
     items: [
       { id: 'crm-pipeline'    as Page, icon: '📋', label: 'CRM Pipeline' },
       { id: 'broker-analytics'as Page, icon: '👔', label: 'Broker Analytics' },
+=======
+      { id: 'asset-matcher'   as Page, icon: '🏆', label: 'Asset Matcher' },
+      { id: 'matches'         as Page, icon: '🎯', label: 'Matches' },
+      { id: 'analytics'       as Page, icon: '📊', label: 'Analytics' },
+      { id: 'heatmap'         as Page, icon: '🗺️', label: 'Heat Map' },
+      { id: 'market-map'      as Page, icon: '🗺️', label: 'Market Map' },
+      { id: 'whatsapp'        as Page, icon: '💬', label: 'WhatsApp' },
+    ],
+  },
+  {
+    label: 'AI ENGINE',
+    items: [
+      { id: 'live-search'     as Page, icon: '🔭', label: 'Live Scraper' },
+      { id: 'nlp-classifier'  as Page, icon: '🧬', label: 'NLP Classifier' },
+    ],
+  },
+  {
+    label: 'MY TOOLS',
+    items: [
+      { id: 'my-search'       as Page, icon: '🔍', label: 'My Search' },
+      { id: 'version-manager' as Page, icon: '🔒', label: 'Version Manager' },
+>>>>>>> origin/main
     ],
   },
   {
@@ -322,6 +345,13 @@ function NavLink({ item, isActive, isOpen, onClick }: { item: NavItem; isActive:
       {item.id === 'asset-matcher' && isOpen && !isActive && (
         <div style={{ padding:'1px 6px', borderRadius:4, background:'rgba(245,158,11,0.15)', color:'var(--brand-gold)', fontSize:'0.58rem', fontWeight:800, border:'1px solid rgba(245,158,11,0.3)', flexShrink:0 }}>NEW</div>
       )}
+<<<<<<< HEAD
+=======
+      {/* New pages badge */}
+      {(item.id === 'market-map' || item.id === 'live-search' || item.id === 'nlp-classifier') && isOpen && !isActive && (
+        <div style={{ padding:'1px 6px', borderRadius:4, background:'rgba(124,58,237,0.15)', color:'#a855f7', fontSize:'0.58rem', fontWeight:800, border:'1px solid rgba(124,58,237,0.3)', flexShrink:0 }}>NEW</div>
+      )}
+>>>>>>> origin/main
       {/* WhatsApp live indicator badge */}
       {item.id === 'whatsapp' && isOpen && !isActive && (
         <div style={{

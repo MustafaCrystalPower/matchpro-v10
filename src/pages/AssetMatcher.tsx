@@ -290,8 +290,11 @@ export default function AssetMatcher({ apiData, loading }: Props) {
   const [searching,     setSearching]     = useState(false)
   const [hasSearched,   setHasSearched]   = useState(false)
   const [selected,      setSelected]      = useState<MatchedDemand | null>(null)
+<<<<<<< HEAD
   const [matchSource,   setMatchSource]   = useState<'gpt'|'mock'|''>('')
   const [demandPoolSize, setDemandPoolSize] = useState(0)
+=======
+>>>>>>> origin/main
 
   // Filters
   const [filterPlatforms, setFilterPlatforms] = useState<Set<Platform>>(new Set(PLATFORMS))
@@ -308,6 +311,7 @@ export default function AssetMatcher({ apiData, loading }: Props) {
   const handleSearch = async () => {
     setSearching(true)
     setSelected(null)
+<<<<<<< HEAD
     setMatchSource('')
 
     try {
@@ -408,6 +412,55 @@ export default function AssetMatcher({ apiData, loading }: Props) {
     setHasSearched(true)
     setHistory(prev => [{ asset: { ...asset }, count: mock.length, top: mock[0]?.score || 0, time: new Date() }, ...prev.slice(0, 9)])
     setSearching(false)
+=======
+    try {
+      const res = await fetch('/api/public/match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          asset_location: asset.location,
+          asset_type:     asset.type,
+          asset_purpose:  asset.purpose,
+          asset_price:    parseInt(asset.price),
+          asset_bedrooms: parseInt(asset.bedrooms),
+        }),
+      })
+      const data = await res.json()
+      const apiMatches: MatchedDemand[] = (data.matches || data.results || []).map((m: any, i: number) => {
+        const partial = {
+          budget_min: m.budget_min || parseInt(asset.price) * 0.8,
+          budget_max: m.budget_max || m.budget || parseInt(asset.price) * 1.2,
+          bedrooms: m.bedrooms || parseInt(asset.bedrooms),
+          bathrooms: m.bathrooms || 2,
+          type: m.type || asset.type,
+          location: m.location || asset.location,
+          area_min: m.area_min || parseInt(asset.area) * 0.8,
+          area_max: m.area_max || parseInt(asset.area) * 1.2,
+          purpose: asset.purpose,
+          finishing: m.finishing || asset.finishing,
+        }
+        const bd = calcScore(asset, partial)
+        return {
+          id: i + 1, buyer_name: m.buyer_name || 'Buyer', buyer_phone: m.buyer_phone || '',
+          score: m.score || totalScore(bd) / 100,
+          source: 'MatchPro API' as Platform, notes: m.notes || '', created_at: m.created_at || new Date().toISOString(),
+          contact_time: 'Anytime', nationality: 'Egyptian', agent: 'Direct', score_breakdown: bd, ...partial,
+        }
+      })
+      const combined = apiMatches.length > 0 ? apiMatches : generateMockDemands(asset, 40)
+      const sorted   = combined.sort((a, b) => b.score - a.score)
+      setMatches(sorted)
+      setHasSearched(true)
+      setHistory(prev => [{ asset: { ...asset }, count: sorted.length, top: sorted[0]?.score || 0, time: new Date() }, ...prev.slice(0, 9)])
+    } catch {
+      const mock = generateMockDemands(asset, 40)
+      setMatches(mock)
+      setHasSearched(true)
+      setHistory(prev => [{ asset: { ...asset }, count: mock.length, top: mock[0]?.score || 0, time: new Date() }, ...prev.slice(0, 9)])
+    } finally {
+      setSearching(false)
+    }
+>>>>>>> origin/main
   }
 
   const togglePlatform = (p: Platform) => {
@@ -476,6 +529,7 @@ export default function AssetMatcher({ apiData, loading }: Props) {
         </div>
       </div>
 
+<<<<<<< HEAD
       {/* ── Source badge ─────────────────────────────────────── */}
       {hasSearched && matchSource && (
         <div style={{
@@ -513,6 +567,15 @@ export default function AssetMatcher({ apiData, loading }: Props) {
             loading={false}
             subtitle={matchSource === 'gpt' ? 'real buyers from WhatsApp' : `of ${PLATFORMS.length} active`}
           />
+=======
+      {/* ── Stat cards ─────────────────────────────────────── */}
+      {hasSearched && (
+        <div className="grid grid-cols-4 stagger" style={{ gap: 14 }}>
+          <StatCard title="Total Matched"  value={matches.length}               icon="🎯" color="var(--brand-teal)"   loading={false} />
+          <StatCard title="Excellent (≥85%)" value={stats.excellent}            icon="⭐" color="var(--brand-green)"  loading={false} subtitle="Top priority leads" />
+          <StatCard title="Avg Match Score"  value={`${(stats.avgScore*100).toFixed(0)}%`} icon="📊" color="var(--brand-purple)" loading={false} />
+          <StatCard title="Platforms"       value={filterPlatforms.size}        icon="🌐" color="var(--brand-gold)"   loading={false} subtitle={`of ${PLATFORMS.length} active`} />
+>>>>>>> origin/main
         </div>
       )}
 

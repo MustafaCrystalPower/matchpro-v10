@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: matchpro
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: node api-server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: JWT_SECRET
+        value: d3454f78d857f7b49c213cb0da1eb04749c715ab77b58c9f8f5f09e431157f12
+      - key: GREEN_API_INSTANCE_ID
+        value: "7105409203"
+      - key: GREEN_API_TOKEN
+        value: c678c910865246ca90eeb3d16867b5fa12a52bb37b4944db92
+      - key: GREEN_API_API_URL
+        value: https://7105.api.greenapi.com
+      - key: GREEN_API_MEDIA_URL
+        value: https://7105.media.greenapi.com
+      - key: MATCHPRO_ACTIVE_VERSION
+        value: "3"
+      - key: REPORT_EMAIL
+        value: mmaisara@crystalpowerinvestment.com

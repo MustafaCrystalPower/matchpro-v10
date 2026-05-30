@@ -1,0 +1,7 @@
+[build]
+command = "npm install && npm run build"
+
+[deploy]
+startCommand = "node api-server.js"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 120
