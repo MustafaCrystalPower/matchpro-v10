@@ -2,10 +2,10 @@
   "name": "matchpro-unified",
   "version": "11.0.0",
   "description": "MatchPro Unified Intelligence Engine v11 — Full Merge: AVM + Subscriptions + Broker Portal + Lead Delivery + Buyers + Properties CRUD + Multi-Currency + WebSocket. Crystal Power Investments.",
-  "main": "server/index.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node server/index.js",
-    "dev": "node --watch server/index.js",
+    "start": "node index.js",
+    "dev": "node --watch index.js",
     "report:now": "node automations/report_engine.js",
     "match:cycle": "python3 automations/python/scheduler.py morning",
     "chadane:daily": "node automations/chadane_daily_system.js morning"
@@ -29,3 +29,4 @@
     "ws": "^8.20.0"
   }
 }
+
